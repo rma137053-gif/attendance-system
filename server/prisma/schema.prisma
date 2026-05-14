@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String
+  role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN
+  status       String        @default("ACTIVE")   // ACTIVE | INACTIVE
+  pin          String?
+  storeId      String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  store        Store?        @relation(fields: [storeId], references: [id])
+  clockRecords ClockRecord[]
+  auditLogs    AuditLog[]
+}
+
+model ClockRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  type         String   // CLOCK_IN | CLOCK_OUT
+  photoKey     String?
+  isAnomalous  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  details      String?
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
