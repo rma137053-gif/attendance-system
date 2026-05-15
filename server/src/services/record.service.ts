@@ -7,7 +7,7 @@ import dayjs from 'dayjs';
 const prisma = new PrismaClient();
 
 const CLOCK_IN_WINDOW_START = 5;  // 05:00 Beijing
-const CLOCK_IN_WINDOW_END = 12;   // 12:00 Beijing (exclusive)
+const CLOCK_IN_WINDOW_END = 23;   // 23:00 Beijing (exclusive)
 const CLOCK_OUT_WINDOW_START = 12; // 12:00 Beijing
 const CLOCK_OUT_WINDOW_END = 23;   // 23:59 Beijing
 

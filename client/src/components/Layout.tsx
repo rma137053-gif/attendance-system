@@ -58,14 +58,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-brand text-white shadow-lg">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <nav className="bg-brand text-white shadow-lg select-none">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link to={homePath} className="flex items-center gap-2 font-bold text-lg">
-              <img src="/logo.png" alt="瑞伦" className="h-8 w-8 object-contain" />
+            <Link to={homePath} className="flex items-center gap-2.5 font-bold text-xl tracking-tight">
+              <img src="/logo.png" alt="瑞伦" className="h-9 w-9 object-contain" />
               打卡系统
             </Link>
-            <div className="hidden sm:flex gap-4 text-sm">
+            <div className="hidden sm:flex gap-5 text-sm">
               {isAdmin ? (
                 <>
                   <NavLink to="/admin" label="总览" current={location.pathname} />
@@ -90,24 +90,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-brand-light font-mono tabular-nums">
+          <div className="flex items-center gap-4">
+            <span className="hidden sm:inline text-brand-light font-mono tabular-nums text-sm">
               {time.format('YYYY-MM-DD HH:mm:ss')} 北京
             </span>
             <button
               onClick={() => setShowPwdModal(true)}
-              className="text-brand-light hover:text-white transition-colors text-left"
+              className="text-brand-light hover:text-white transition-colors text-left leading-tight"
             >
-              <div>{user?.name}</div>
+              <div className="text-sm font-medium">{user?.name}</div>
               {user?.role === 'ADMIN' && !user?.storeId ? (
-                <div className="text-xs opacity-70">全部门店</div>
+                <div className="text-xs opacity-60">全部门店</div>
               ) : (user as any)?.store?.name ? (
-                <div className="text-xs opacity-70">{(user as any).store.name}</div>
+                <div className="text-xs opacity-60">{(user as any).store.name}</div>
               ) : null}
             </button>
             <button
               onClick={handleLogout}
-              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded transition-colors"
+              className="bg-white/15 hover:bg-white/25 px-4 py-2 rounded-xl transition-colors text-sm font-medium"
             >
               退出
             </button>

@@ -128,7 +128,7 @@ export default function UserManagement() {
         <button
           onClick={() => {
             setEditUser(null);
-            setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '' });
+            setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '', pin: '' });
             setShowForm(true);
           }}
           className="bg-brand text-white px-4 py-2 rounded-lg hover:bg-brand-dark transition-colors text-sm"
@@ -140,7 +140,7 @@ export default function UserManagement() {
       {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}
 
       {showForm && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        <div className="bg-surface-card rounded-2xl border border-gray-200 p-6 mb-6 animate-fade-in">
           <h2 className="font-semibold text-gray-800 mb-4">
             {editUser ? '编辑员工' : '添加员工'}
           </h2>
@@ -152,7 +152,7 @@ export default function UserManagement() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
               />
             </div>
             <div>
@@ -162,7 +162,7 @@ export default function UserManagement() {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
               />
             </div>
             {!editUser && (
@@ -172,7 +172,7 @@ export default function UserManagement() {
                   value={form.storeId}
                   onChange={(e) => setForm({ ...form, storeId: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
                 >
                   {stores.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -189,7 +189,7 @@ export default function UserManagement() {
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   required
                   minLength={6}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
                 />
               </div>
             )}
@@ -202,7 +202,7 @@ export default function UserManagement() {
                 onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '') })}
                 maxLength={6}
                 placeholder={editUser ? '留空则保持不变' : '可选'}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
               />
             </div>
             <div className="flex gap-2">
@@ -224,36 +224,36 @@ export default function UserManagement() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-surface-card rounded-2xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">姓名</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">邮箱</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">门店</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">PIN</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">角色</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">状态</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">操作</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600">姓名</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">邮箱</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">门店</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">PIN</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600">角色</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600">状态</th>
+              <th className="text-right px-4 py-3 font-semibold text-gray-600">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {users.map((u) => (
-              <tr key={u.id}>
-                <td className="px-4 py-3 text-gray-800">{u.name}</td>
-                <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{u.email}</td>
-                <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{u.store?.name || '-'}</td>
-                <td className="px-4 py-3 text-gray-500 hidden sm:table-cell font-mono">{u.pin || '-'}</td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+              <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
+                <td className="px-4 py-3.5 text-gray-800 font-medium">{u.name}</td>
+                <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell">{u.email}</td>
+                <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell">{u.store?.name || '-'}</td>
+                <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell font-mono">{u.pin || '-'}</td>
+                <td className="px-4 py-3.5">
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
                     u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                   }`}>
-                    {u.role === 'ADMIN' ? '管理员' : '员工'}
+                    {u.role === 'ADMIN' ? '管理员' : u.role === 'STORE_ADMIN' ? '店长' : '员工'}
                   </span>
                 </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    u.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                <td className="px-4 py-3.5">
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                    u.status === 'ACTIVE' ? 'bg-clock-in-light text-clock-in' : 'bg-gray-100 text-gray-500'
                   }`}>
                     {u.status === 'ACTIVE' ? '在职' : '停用'}
                   </span>

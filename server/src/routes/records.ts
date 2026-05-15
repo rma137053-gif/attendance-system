@@ -13,7 +13,10 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    // Accept all images; also accept application/octet-stream as mobile browsers
+    // may send camera captures without a proper MIME type
+    const mime = file.mimetype || '';
+    if (mime.startsWith('image/') || mime === 'application/octet-stream') {
       cb(null, true);
     } else {
       cb(new BadRequestError('仅支持图片文件'));
@@ -32,17 +35,32 @@ function resolveClockUserId(req: Request): string {
   return req.user!.userId;
 }
 
+// Accept either multipart file upload or JSON with base64 photo
 router.post(
   '/clock-in',
   upload.single('photo'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      let photoBuffer: Buffer | undefined;
+      let photoOriginalName: string | undefined;
+
+      if (req.file) {
+        // Multipart upload
+        photoBuffer = req.file.buffer;
+        photoOriginalName = req.file.originalname;
+      } else if (req.body.photoBase64) {
+        // JSON base64 upload (mobile-friendly)
+        const base64 = req.body.photoBase64.replace(/^data:image\/\w+;base64,/, '');
+        photoBuffer = Buffer.from(base64, 'base64');
+        photoOriginalName = req.body.photoName || 'photo.jpg';
+      }
+
       const clockUserId = resolveClockUserId(req);
       const record = await recordService.createRecord({
         userId: clockUserId,
         type: 'CLOCK_IN',
-        photoBuffer: req.file?.buffer,
-        photoOriginalName: req.file?.originalname,
+        photoBuffer,
+        photoOriginalName,
         requesterStoreId: clockUserId !== req.user!.userId ? req.user!.storeId : undefined,
       });
       res.status(201).json(record);
@@ -57,12 +75,24 @@ router.post(
   upload.single('photo'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      let photoBuffer: Buffer | undefined;
+      let photoOriginalName: string | undefined;
+
+      if (req.file) {
+        photoBuffer = req.file.buffer;
+        photoOriginalName = req.file.originalname;
+      } else if (req.body.photoBase64) {
+        const base64 = req.body.photoBase64.replace(/^data:image\/\w+;base64,/, '');
+        photoBuffer = Buffer.from(base64, 'base64');
+        photoOriginalName = req.body.photoName || 'photo.jpg';
+      }
+
       const clockUserId = resolveClockUserId(req);
       const record = await recordService.createRecord({
         userId: clockUserId,
         type: 'CLOCK_OUT',
-        photoBuffer: req.file?.buffer,
-        photoOriginalName: req.file?.originalname,
+        photoBuffer,
+        photoOriginalName,
         requesterStoreId: clockUserId !== req.user!.userId ? req.user!.storeId : undefined,
       });
       res.status(201).json(record);

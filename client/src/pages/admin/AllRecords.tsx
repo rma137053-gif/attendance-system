@@ -103,14 +103,14 @@ export default function AllRecords() {
       <h1 className="text-xl font-bold text-gray-800 mb-6">全员打卡记录</h1>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+      <div className="bg-surface-card rounded-2xl border border-gray-200 p-4 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">门店</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">门店</label>
             <select
               value={filters.storeId}
               onChange={(e) => { setFilters({ ...filters, storeId: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             >
               <option value="">全部门店</option>
               {stores.map((s) => (
@@ -119,11 +119,11 @@ export default function AllRecords() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">员工</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">员工</label>
             <select
               value={filters.userId}
               onChange={(e) => { setFilters({ ...filters, userId: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             >
               <option value="">全部</option>
               {users.map((u) => (
@@ -132,11 +132,11 @@ export default function AllRecords() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">类型</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">类型</label>
             <select
               value={filters.type}
               onChange={(e) => { setFilters({ ...filters, type: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             >
               <option value="">全部</option>
               <option value="CLOCK_IN">上班</option>
@@ -144,11 +144,11 @@ export default function AllRecords() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">异常</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">异常</label>
             <select
               value={filters.anomalous}
               onChange={(e) => { setFilters({ ...filters, anomalous: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             >
               <option value="">全部</option>
               <option value="true">仅异常</option>
@@ -156,21 +156,21 @@ export default function AllRecords() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">开始日期</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">开始日期</label>
             <input
               type="date"
               value={filters.startDate}
               onChange={(e) => { setFilters({ ...filters, startDate: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">结束日期</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">结束日期</label>
             <input
               type="date"
               value={filters.endDate}
               onChange={(e) => { setFilters({ ...filters, endDate: e.target.value }); setPage(1); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand bg-white"
             />
           </div>
         </div>
@@ -186,29 +186,31 @@ export default function AllRecords() {
             {records.map((r) => (
               <div
                 key={r.id}
-                className="bg-white rounded-lg border border-gray-200 p-4"
+                className="bg-surface-card rounded-2xl border border-gray-200 p-4 animate-fade-in"
               >
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-800">{r.user.name}</span>
+                      <span className="font-semibold text-gray-800">{r.user.name}</span>
                       <span className="text-xs text-gray-400">{r.user.email}</span>
                       {r.user.store && (
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{r.user.store.name}</span>
+                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{r.user.store.name}</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1.5">
                       <span
-                        className={`inline-block w-2 h-2 rounded-full ${
-                          r.type === 'CLOCK_IN' ? 'bg-green-500' : 'bg-orange-500'
+                        className={`inline-block w-2.5 h-2.5 rounded-full ${
+                          r.type === 'CLOCK_IN' ? 'bg-clock-in' : 'bg-clock-out'
                         }`}
                       />
-                      <span className="text-sm text-gray-600">
+                      <span className={`text-sm font-semibold ${
+                        r.type === 'CLOCK_IN' ? 'text-clock-in' : 'text-clock-out'
+                      }`}>
                         {r.type === 'CLOCK_IN' ? '上班' : '下班'}
                       </span>
-                      <span className="text-sm text-gray-400">{r.createdAt}</span>
+                      <span className="text-sm text-gray-400 font-mono">{r.createdAt}</span>
                       {r.isAnomalous && (
-                        <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">异常</span>
+                        <span className="text-xs bg-anomaly-light text-anomaly px-1.5 py-0.5 rounded-full font-semibold">异常</span>
                       )}
                     </div>
                   </div>
@@ -216,7 +218,7 @@ export default function AllRecords() {
                     {r.hasPhoto && (
                       <button
                         onClick={() => handleViewPhoto(r.id)}
-                        className="text-sm text-brand hover:text-brand-dark"
+                        className="text-sm text-brand hover:text-brand-dark font-medium px-3 py-1.5 rounded-xl hover:bg-brand-light transition-colors"
                       >
                         {viewPhotoId === r.id ? '收起' : '查看照片'}
                       </button>

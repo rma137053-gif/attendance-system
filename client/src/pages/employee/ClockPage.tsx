@@ -21,7 +21,7 @@ interface EmployeeItem {
 export default function ClockPage() {
   const { user } = useAuth();
   const { success: showSuccess, error: showError } = useToast();
-  const { videoRef, error: cameraError, startCamera, stopCamera, capturePhoto } = useCamera();
+  const { videoRef, fileInputRef, error: cameraError, startCamera, stopCamera, capturePhoto, handleFileInputChange } = useCamera();
   const [step, setStep] = useState<ClockStep>('identity');
   const [clockType, setClockType] = useState<'CLOCK_IN' | 'CLOCK_OUT'>('CLOCK_IN');
   const [photo, setPhoto] = useState<File | null>(null);
@@ -67,10 +67,18 @@ export default function ClockPage() {
     if (!photo || !selectedEmployee) return;
     setSubmitting(true);
     try {
-      const form = new FormData();
-      form.append('photo', photo);
+      const photoBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('读取照片失败'));
+        reader.readAsDataURL(photo);
+      });
       const endpoint = clockType === 'CLOCK_IN' ? '/records/clock-in' : '/records/clock-out';
-      const res = await api.post(endpoint, form);
+      const res = await api.post(endpoint, {
+        photoBase64,
+        photoName: photo.name || 'photo.jpg',
+        userId: selectedEmployee.id,
+      });
       setResult(res.data);
       setStep('success');
       showSuccess(`${clockType === 'CLOCK_IN' ? '上班' : '下班'}打卡成功`);
@@ -150,6 +158,14 @@ export default function ClockPage() {
   if (step === 'camera') {
     return (
       <div className="max-w-lg mx-auto">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFileInputChange}
+        />
         <h1 className="text-xl font-bold text-gray-800 mb-4 text-center">
           {selectedEmployee?.name} — {clockType === 'CLOCK_IN' ? '上班打卡' : '下班打卡'} - 拍照
         </h1>

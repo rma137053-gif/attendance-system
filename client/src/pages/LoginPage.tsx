@@ -26,50 +26,56 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-md p-8 w-full max-w-md">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">📋 打卡系统</h1>
-          <p className="text-gray-500 mt-1">员工上下班打卡</p>
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+      <div className="w-full max-w-sm animate-fade-in">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <img src="/logo.png" alt="瑞伦" className="h-16 mx-auto mb-3" />
+          <h1 className="text-xl font-bold text-gray-800">打卡系统</h1>
+          <p className="text-gray-500 mt-1 text-sm">员工上下班打卡</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg">{error}</div>
-          )}
+        {/* Card */}
+        <div className="bg-surface-card rounded-2xl shadow-sm border border-gray-200 p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="bg-danger-light text-danger text-sm p-3 rounded-xl">{error}</div>
+            )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none transition-colors"
-              placeholder="请输入邮箱"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">邮箱</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-base focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+                placeholder="请输入邮箱"
+                autoFocus
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none transition-colors"
-              placeholder="请输入密码"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">密码</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-base focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+                placeholder="请输入密码"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {loading ? '登录中...' : '登录'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-brand hover:bg-brand-dark text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 text-base"
+            >
+              {loading ? '登录中...' : '登录'}
+            </button>
+          </form>
+        </div>
 
         <p className="text-xs text-gray-400 text-center mt-6">
           如无账号，请联系管理员开通
