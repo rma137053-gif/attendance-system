@@ -21,20 +21,34 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function getToken(): string | null {
+  const ls = localStorage.getItem('token');
+  if (ls) return ls;
+  const m = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+  return m ? m[1] : null;
+}
+
+function clearToken() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  document.cookie = 'token=; path=/; max-age=0';
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (token) {
       api
         .get('/auth/me')
-        .then((res) => setUser(res.data))
-        .catch(() => {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+        .then((res) => {
+          setUser(res.data);
+          localStorage.setItem('token', token);
+          localStorage.setItem('user', JSON.stringify(res.data));
         })
+        .catch(() => clearToken())
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
@@ -49,8 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearToken();
     setUser(null);
   };
 

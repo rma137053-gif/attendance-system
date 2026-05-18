@@ -7,3 +7,6 @@ uploads/photos/*
 .env
 .env.local
 .DS_Store
+*.tar.gz
+tsconfig.tsbuildinfo
+client/android/

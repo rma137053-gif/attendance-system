@@ -31,6 +31,11 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   try {
     const body = loginSchema.parse(req.body);
     const result = await authService.login(body.email, body.password);
+    res.cookie('token', result.token, {
+      path: '/',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
     res.json(result);
   } catch (err) {
     next(err);

@@ -1,5 +1,12 @@
 import axios from 'axios';
 
+function getToken(): string | null {
+  const ls = localStorage.getItem('token');
+  if (ls) return ls;
+  const m = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+  return m ? m[1] : null;
+}
+
 const baseURL = '/api';
 
 const api = axios.create({
@@ -8,7 +15,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

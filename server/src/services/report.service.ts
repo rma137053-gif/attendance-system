@@ -26,6 +26,7 @@ interface ReportRow {
   lateCount: number;
   earlyCount: number;
   missingClockOut: boolean;
+  leaveDays: number;
 }
 
 interface WeeklyReportRow extends ReportRow {
@@ -73,7 +74,40 @@ function computeDailyHours(entry: { ins: dayjs.Dayjs[]; outs: dayjs.Dayjs[] }): 
   return Math.round((diffMinutes / 60) * 10) / 10; // round to 1 decimal
 }
 
-function computeRow(userId: string, userName: string, userEmail: string, storeName: string, dayMap: Map<string, { ins: dayjs.Dayjs[]; outs: dayjs.Dayjs[] }>): ReportRow {
+async function buildLeaveDayMap(userIds: string[], rangeStart: Date, rangeEnd: Date): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (userIds.length === 0) return map;
+
+  const leaves = await prisma.leave.findMany({
+    where: {
+      userId: { in: userIds },
+      status: 'APPROVED',
+      startDate: { lte: rangeEnd },
+      endDate: { gte: rangeStart },
+    },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+
+  for (const l of leaves) {
+    let d = dayjs.utc(l.startDate).tz(TZ);
+    const end = dayjs.utc(l.endDate).tz(TZ);
+    const rStart = dayjs.utc(rangeStart).tz(TZ);
+    const rEnd = dayjs.utc(rangeEnd).tz(TZ);
+    // Clamp to report range
+    if (d.isBefore(rStart)) d = rStart;
+    const effectiveEnd = end.isAfter(rEnd) ? rEnd : end;
+    let count = 0;
+    while (d.isBefore(effectiveEnd) || d.isSame(effectiveEnd, 'day')) {
+      count++;
+      d = d.add(1, 'day');
+    }
+    map.set(l.userId, (map.get(l.userId) || 0) + count);
+  }
+
+  return map;
+}
+
+function computeRow(userId: string, userName: string, userEmail: string, storeName: string, dayMap: Map<string, { ins: dayjs.Dayjs[]; outs: dayjs.Dayjs[] }>, leaveDays: number): ReportRow {
   let clockInCount = 0;
   let clockOutCount = 0;
   let lateCount = 0;
@@ -129,6 +163,7 @@ function computeRow(userId: string, userName: string, userEmail: string, storeNa
     lateCount,
     earlyCount,
     missingClockOut,
+    leaveDays,
   };
 }
 
@@ -154,10 +189,13 @@ export async function getWeeklyReport(storeId: string | null, dateStr?: string) 
 
   const userDayMap = buildUserDayMap(records);
 
+  // 统计已审批请假天数
+  const leaveMap = await buildLeaveDayMap(users.map((u) => u.id), weekStart, weekEnd);
+
   return users.map((u) => {
     const dayMap = userDayMap.get(u.id) || new Map();
     return {
-      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap),
+      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap, leaveMap.get(u.id) || 0),
       weekStart: formatBeijing(weekStart),
       weekEnd: formatBeijing(weekEnd),
     };
@@ -186,10 +224,12 @@ export async function getMonthlyReport(storeId: string | null, monthStr?: string
 
   const userDayMap = buildUserDayMap(records);
 
+  const leaveMap = await buildLeaveDayMap(users.map((u) => u.id), monthStart, monthEnd);
+
   return users.map((u) => {
     const dayMap = userDayMap.get(u.id) || new Map();
     return {
-      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap),
+      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap, leaveMap.get(u.id) || 0),
       month: refDate.format('YYYY-MM'),
     };
   });
@@ -217,10 +257,12 @@ export async function getYearlyReport(storeId: string | null, yearStr?: string) 
 
   const userDayMap = buildUserDayMap(records);
 
+  const leaveMap = await buildLeaveDayMap(users.map((u) => u.id), yearStart, yearEnd);
+
   return users.map((u) => {
     const dayMap = userDayMap.get(u.id) || new Map();
     return {
-      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap),
+      ...computeRow(u.id, u.name, u.email, u.store?.name ?? '', dayMap, leaveMap.get(u.id) || 0),
       year: `${year}`,
     };
   });
@@ -259,6 +301,7 @@ export function generateSummary(rows: ReportRow[]): ReportRow & { userName: stri
     lateCount,
     earlyCount,
     missingClockOut: anyMissing,
+    leaveDays: rows.reduce((sum, r) => sum + (r.leaveDays || 0), 0),
   };
 }
 
@@ -268,7 +311,7 @@ export function generateCsv(rows: (WeeklyReportRow | MonthlyReportRow | YearlyRe
   const summary = generateSummary(rows);
   const allRows = [...rows, summary as any];
 
-  const headers = ['姓名', '邮箱', '门店', '上班次数', '下班次数', '出勤天数', '总工时(h)', '迟到次数', '早退次数', '缺下班卡'];
+  const headers = ['姓名', '邮箱', '门店', '上班次数', '下班次数', '出勤天数', '请假天数', '总工时(h)', '迟到次数', '早退次数', '缺下班卡'];
   const lines = [headers.join(',')];
 
   for (const row of allRows) {
@@ -279,6 +322,7 @@ export function generateCsv(rows: (WeeklyReportRow | MonthlyReportRow | YearlyRe
       String(row.clockInCount),
       String(row.clockOutCount),
       String(row.daysWithRecords),
+      String(row.leaveDays ?? 0),
       String(row.totalHours ?? '0'),
       String(row.lateCount ?? ''),
       String(row.earlyCount ?? ''),

@@ -1,7 +1,9 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { formatBeijing, toBeijing, beijingDayStart, beijingDayEnd, nowBeijing } from '../utils/timezone';
+import { calcLateMinutes, parseTimeToBeijing } from '../utils/roster';
 import { savePhoto, getPhoto, deletePhoto } from './storage.service';
+import { getApprovedLeaveDates } from './leave.service';
 import dayjs from 'dayjs';
 
 const prisma = new PrismaClient();
@@ -39,13 +41,64 @@ export async function createRecord(params: CreateRecordParams) {
     }
   }
 
-  // Check if within valid time window
-  const beijingHour = nowBeijing().hour();
-  const isAnomalous = !isWithinWindow(type, beijingHour);
-
-  // Dedup: same type same day
+  // Look up today's roster for roster linkage
   const todayStart = beijingDayStart(nowBeijing());
   const todayEnd = beijingDayEnd(nowBeijing());
+  const roster = await prisma.roster.findFirst({
+    where: {
+      userId,
+      shiftDate: { gte: todayStart, lte: todayEnd },
+    },
+  });
+
+  let rosterId: string | null = null;
+  let lateMinutes: number | null = null;
+  let note: string | null = null;
+
+  // Check if user is on approved leave today
+  let onLeave = false;
+  if (roster) {
+    const leaveDates = await getApprovedLeaveDates(userId, todayStart, todayEnd);
+    onLeave = leaveDates.has(nowBeijing().format('YYYY-MM-DD'));
+  }
+
+  // Check if within valid time window
+  const beijingHour = nowBeijing().hour();
+
+  // With roster: use roster-based anomaly detection instead of time window
+  let isAnomalous: boolean;
+  if (onLeave) {
+    // 已审批请假：不标记异常
+    isAnomalous = false;
+    note = `${roster!.startTime}-${roster!.endTime}, 已请假`;
+  } else if (roster && type === 'CLOCK_IN') {
+    const now = nowBeijing();
+    lateMinutes = calcLateMinutes(roster.startTime, now);
+    isAnomalous = lateMinutes > 0;
+    note = isAnomalous
+      ? `${roster.startTime}-${roster.endTime}, 迟到 ${lateMinutes} 分钟`
+      : `${roster.startTime}-${roster.endTime}, 准时`;
+  } else if (roster && type === 'CLOCK_OUT') {
+    const now = nowBeijing();
+    const end = parseTimeToBeijing(now, roster.endTime);
+    if (now.isBefore(end)) {
+      const earlyMinutes = end.diff(now, 'minute');
+      isAnomalous = true;
+      note = `提前 ${earlyMinutes} 分钟下班`;
+    } else {
+      isAnomalous = false;
+      note = `${roster.startTime}-${roster.endTime}, 准时下班`;
+    }
+  } else {
+    // No roster: fall back to existing time window check
+    isAnomalous = !isWithinWindow(type, beijingHour);
+  }
+
+  if (roster) {
+    rosterId = roster.id;
+  }
+
+  // Dedup: same type same day
   const existingSameType = await prisma.clockRecord.findFirst({
     where: {
       userId,
@@ -62,24 +115,29 @@ export async function createRecord(params: CreateRecordParams) {
       ...existingSameType,
       createdAt: formatBeijing(existingSameType.createdAt),
       user: clockUser ?? { id: userId, name: '', email: '' },
+      rosterId: existingSameType.rosterId,
+      lateMinutes: existingSameType.lateMinutes,
+      note: existingSameType.note,
       duplicate: true,
     };
   }
 
   if (existingSameType && type === 'CLOCK_OUT') {
-    // Keep last clock-out — save new photo first, then replace old record
+    // Keep last clock-out — save new photo first, then replace old record atomically
     const photoKey = await savePhoto(photoBuffer, photoOriginalName || 'photo.jpg');
     if (existingSameType.photoKey) {
       await deletePhoto(existingSameType.photoKey).catch(() => {});
     }
-    await prisma.clockRecord.delete({ where: { id: existingSameType.id } });
 
-    const record = await prisma.clockRecord.create({
-      data: { userId, type, photoKey, isAnomalous },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-      },
-    });
+    const [record] = await prisma.$transaction([
+      prisma.clockRecord.create({
+        data: { userId, type, photoKey, isAnomalous, rosterId, lateMinutes, note },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      prisma.clockRecord.delete({ where: { id: existingSameType.id } }),
+    ]);
 
     return {
       ...record,
@@ -90,7 +148,7 @@ export async function createRecord(params: CreateRecordParams) {
   const photoKey = await savePhoto(photoBuffer, photoOriginalName || 'photo.jpg');
 
   const record = await prisma.clockRecord.create({
-    data: { userId, type, photoKey, isAnomalous },
+    data: { userId, type, photoKey, isAnomalous, rosterId, lateMinutes, note },
     include: {
       user: { select: { id: true, name: true, email: true } },
     },
@@ -176,13 +234,14 @@ export async function getPhotoForRecord(recordId: string, requesterUserId: strin
 
   if (!record) throw new NotFoundError('打卡记录不存在');
 
-  // Employees can only view their own photos
-  if (requesterRole !== 'ADMIN' && record.userId !== requesterUserId) {
+  // Employees can only view their own photos; STORE_ADMIN can view their store's employees
+  const isStoreAdminOfRecord = requesterRole === 'STORE_ADMIN' && requesterStoreId === record.user.storeId;
+  if (requesterRole !== 'ADMIN' && record.userId !== requesterUserId && !isStoreAdminOfRecord) {
     throw new NotFoundError('打卡记录不存在');
   }
 
   // Store-scoped admin can only see their store's photos
-  if (requesterRole === 'ADMIN' && requesterStoreId && record.user.storeId !== requesterStoreId) {
+  if (requesterStoreId && record.user.storeId !== requesterStoreId) {
     throw new NotFoundError('打卡记录不存在');
   }
 

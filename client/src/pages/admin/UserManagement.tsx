@@ -83,10 +83,13 @@ export default function UserManagement() {
 
   const handleToggleStatus = (user: User) => {
     const newStatus = user.status === 'ACTIVE' ? '停用' : '启用';
+    const isDeleting = user.status === 'ACTIVE';
     setConfirm({
       open: true,
       title: `${newStatus}员工`,
-      message: `确定要${newStatus}员工「${user.name}」吗？`,
+      message: isDeleting
+        ? `确定要停用员工「${user.name}」吗？将删除该员工的所有数据（排班、打卡记录等），不可撤销。`
+        : `确定要启用员工「${user.name}」吗？`,
       onConfirm: async () => {
         try {
           await api.patch(`/users/${user.id}/status`);

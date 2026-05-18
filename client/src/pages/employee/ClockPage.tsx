@@ -16,6 +16,8 @@ interface EmployeeItem {
   id: string;
   name: string;
   email: string;
+  startTime?: string | null;
+  endTime?: string | null;
 }
 
 export default function ClockPage() {
@@ -122,6 +124,11 @@ export default function ClockPage() {
                 }`}
               >
                 <div className="font-medium text-gray-800 text-sm">{emp.name}</div>
+                {emp.startTime && emp.endTime ? (
+                  <div className="text-xs text-gray-400">{emp.startTime}-{emp.endTime}</div>
+                ) : (
+                  <div className="text-xs text-gray-300">未排班</div>
+                )}
                 {emp.id === user?.id && (
                   <div className="text-xs text-brand mt-1">当前账号</div>
                 )}

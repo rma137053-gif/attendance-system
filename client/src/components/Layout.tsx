@@ -73,6 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <NavLink to="/admin/records" label="打卡记录" current={location.pathname} />
                   <NavLink to="/admin/reports" label="报表" current={location.pathname} />
                   <NavLink to="/admin/audit-logs" label="操作日志" current={location.pathname} />
+                  <NavLink to="/admin/leaves" label="请假管理" current={location.pathname} />
                 </>
               ) : isStoreAdmin ? (
                 <>
@@ -86,6 +87,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <NavLink to="/dashboard" label="首页" current={location.pathname} />
                   <NavLink to="/dashboard/clock" label="打卡" current={location.pathname} />
                   <NavLink to="/dashboard/records" label="我的记录" current={location.pathname} />
+                  <NavLink to="/dashboard/leaves" label="请假" current={location.pathname} />
+                  <NavLink to="/dashboard/rest" label="选休" current={location.pathname} />
                 </>
               )}
             </div>
@@ -105,6 +108,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div className="text-xs opacity-60">{(user as any).store.name}</div>
               ) : null}
             </button>
+            {!isAdmin && !isStoreAdmin ? null : (
+              <a
+                href={import.meta.env.PROD ? '/roster/' : 'http://localhost:5174'}
+                className="bg-white/15 hover:bg-white/25 px-3 py-2 rounded-xl transition-colors text-sm font-medium"
+              >
+                排班助手
+              </a>
+            )}
             <button
               onClick={handleLogout}
               className="bg-white/15 hover:bg-white/25 px-4 py-2 rounded-xl transition-colors text-sm font-medium"

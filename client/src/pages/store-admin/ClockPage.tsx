@@ -13,6 +13,8 @@ dayjs.extend(timezone);
 interface Employee {
   id: string;
   name: string;
+  startTime?: string | null;
+  endTime?: string | null;
 }
 
 type Step = 'select-employee' | 'enter-pin' | 'select-type' | 'camera' | 'confirm' | 'success';
@@ -200,6 +202,11 @@ export default function StoreAdminClock() {
                 <span className="font-semibold text-gray-800 text-sm leading-tight text-center">
                   {emp.name}
                 </span>
+                {emp.startTime && emp.endTime ? (
+                  <span className="text-xs text-gray-400">{emp.startTime}-{emp.endTime}</span>
+                ) : (
+                  <span className="text-xs text-gray-300">今日未排班</span>
+                )}
               </button>
             ))}
           </div>

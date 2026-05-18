@@ -12,6 +12,9 @@ model Store {
   name      String
   createdAt DateTime @default(now())
   users     User[]
+  rosters     Roster[]
+  leaves      Leave[]        @relation("LeaveStore")
+  weeklyRests WeeklyRest[]
 }
 
 model User {
@@ -19,26 +22,41 @@ model User {
   email        String        @unique
   passwordHash String
   name         String
-  role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN
+  role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN | STORE_ADMIN
   status       String        @default("ACTIVE")   // ACTIVE | INACTIVE
   pin          String?
   storeId      String?
+  wechatUserId String?       // 企业微信用户ID，用于精准推送
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   store        Store?        @relation(fields: [storeId], references: [id])
   clockRecords ClockRecord[]
   auditLogs    AuditLog[]
+  rosters      Roster[]
+  handoverNotes HandoverNote[]
+  pushLogs     PushLog[]
+  leaves        Leave[]        @relation("LeaveUser")
+  approvedLeaves Leave[]       @relation("LeaveApprover")
+  weeklyRests    WeeklyRest[]
+
+  @@index([wechatUserId])
 }
 
 model ClockRecord {
-  id        String   @id @default(uuid())
-  userId    String
-  type         String   // CLOCK_IN | CLOCK_OUT
-  photoKey     String?
-  isAnomalous  Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // CLOCK_IN | CLOCK_OUT
+  photoKey    String?
+  isAnomalous Boolean  @default(false)
+  rosterId    String?  // 关联排班记录
+  lateMinutes Int?     // 迟到分钟数
+  note        String?  // 自动备注
+  createdAt   DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roster Roster? @relation(fields: [rosterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, type, createdAt])
 }
 
 model AuditLog {
@@ -51,4 +69,94 @@ model AuditLog {
   createdAt    DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Roster {
+  id        String   @id @default(uuid())
+  storeId   String
+  userId    String
+  shiftDate DateTime // 排班日期（北京00:00的UTC）
+  startTime    String   // "HH:mm" 北京时间，如 "08:00"
+  endTime      String   // "HH:mm" 北京时间，如 "13:30"
+  breakMinutes Int      @default(0) // 休息时间（分钟）
+  createdAt    DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store         Store          @relation(fields: [storeId], references: [id])
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockRecords  ClockRecord[]
+  handoverNotes HandoverNote[]
+  pushLogs      PushLog[]
+
+  @@unique([userId, shiftDate])
+  @@index([storeId, shiftDate])
+  @@index([userId])
+}
+
+model HandoverNote {
+  id        String   @id @default(uuid())
+  rosterId  String
+  authorId  String?
+  content   String
+  createdAt DateTime @default(now())
+
+  roster Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+  author User?  @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([rosterId])
+}
+
+model Leave {
+  id         String   @id @default(uuid())
+  userId     String
+  storeId    String
+  type       String   // ANNUAL | SICK | PERSONAL
+  startDate  DateTime // 开始日期（北京00:00 UTC）
+  endDate    DateTime // 结束日期（北京00:00 UTC）
+  reason     String?
+  status     String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  approverId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User  @relation("LeaveUser", fields: [userId], references: [id], onDelete: Cascade)
+  store    Store @relation("LeaveStore", fields: [storeId], references: [id])
+  approver User? @relation("LeaveApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([storeId, status])
+  @@index([startDate, endDate])
+}
+
+model WeeklyRest {
+  id        String   @id @default(uuid())
+  userId    String
+  storeId   String
+  restDate  DateTime
+  weekStart DateTime
+  createdBy String   @default("EMPLOYEE") // EMPLOYEE | ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([userId, weekStart])
+  @@index([storeId, weekStart])
+}
+
+model PushLog {
+  id        String   @id @default(uuid())
+  userId    String
+  rosterId  String?
+  type      String   // CLOCK_IN_REMINDER | CLOCK_IN_URGE | CLOCK_OUT_REMINDER
+  status    String   // SENT | FAILED
+  errorMsg  String?
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roster Roster? @relation(fields: [rosterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([rosterId])
 }

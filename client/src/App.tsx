@@ -11,6 +11,9 @@ import UserManagement from './pages/admin/UserManagement';
 import AllRecords from './pages/admin/AllRecords';
 import Reports from './pages/admin/Reports';
 import AuditLog from './pages/admin/AuditLog';
+import LeaveManagement from './pages/admin/LeaveManagement';
+import LeaveRequest from './pages/employee/LeaveRequest';
+import RestDaySelector from './pages/employee/RestDaySelector';
 import StoreAdminDashboard from './pages/store-admin/Dashboard';
 import StoreAdminClock from './pages/store-admin/ClockPage';
 import StoreAdminEmployees from './pages/store-admin/EmployeeManagement';
@@ -105,6 +108,22 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/dashboard/leaves"
+        element={
+          <ProtectedRoute requiredRole="EMPLOYEE">
+            <LeaveRequest />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/rest"
+        element={
+          <ProtectedRoute requiredRole="EMPLOYEE">
+            <RestDaySelector />
+          </ProtectedRoute>
+        }
+      />
       {/* ADMIN routes */}
       <Route
         path="/admin"
@@ -143,6 +162,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requiredRole="ADMIN">
             <AuditLog />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/leaves"
+        element={
+          <ProtectedRoute requiredRole="ADMIN">
+            <LeaveManagement />
           </ProtectedRoute>
         }
       />

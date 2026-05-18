@@ -13,4 +13,13 @@ export const config = {
     accessKey: process.env.S3_ACCESS_KEY || '',
     secretKey: process.env.S3_SECRET_KEY || '',
   },
+  wechat: {
+    webhookUrl: process.env.WECHAT_WEBHOOK_URL || '',
+    enabled: process.env.WECHAT_PUSH_ENABLED === 'true',
+    corpId: process.env.WECHAT_CORP_ID || '',
+    agentId: process.env.WECHAT_AGENT_ID || '',
+    secret: process.env.WECHAT_SECRET || '',
+    token: process.env.WECHAT_TOKEN || '',
+    encodingAESKey: process.env.WECHAT_ENCODING_AESKEY || '',
+  },
 };

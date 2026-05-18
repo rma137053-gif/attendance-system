@@ -7,8 +7,8 @@ import * as userService from '../services/user.service';
 
 const router = Router();
 
-// Employee roster — any authenticated user can access (scoped to their store)
-router.get('/roster', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+// Employee roster — STORE_ADMIN+ can access (scoped to their store)
+router.get('/roster', authMiddleware, requireStoreAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const users = await userService.listEmployeeRoster(req.user!.storeId);
     res.json(users);
@@ -56,7 +56,10 @@ const createSchema = z.object({
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const users = await userService.listEmployees(req.user!.storeId);
+    const effectiveStoreId = req.user!.role === 'ADMIN' && req.query.storeId
+      ? (req.query.storeId as string)
+      : req.user!.storeId;
+    const users = await userService.listEmployees(effectiveStoreId);
     res.json(users);
   } catch (err) {
     next(err);
