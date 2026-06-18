@@ -1,10 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import tz from 'dayjs/plugin/timezone';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
 import { ForbiddenError } from '../utils/errors';
 import { sendAppMessage } from '../services/wechat.service';
 import * as leaveService from '../services/leave.service';
+
+dayjs.extend(utc);
+dayjs.extend(tz);
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -75,7 +81,10 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       // ADMIN
       if (!body.userId) throw new ForbiddenError('请选择员工');
       targetUserId = body.userId;
-      targetStoreId = (req.body as any).storeId || storeId || '';
+      // 查找员工的 storeId，避免外键约束错误
+      const targetUser = await prisma.user.findUnique({ where: { id: targetUserId }, select: { storeId: true } });
+      if (!targetUser?.storeId) throw new ForbiddenError('该员工无归属门店');
+      targetStoreId = targetUser.storeId;
     }
 
     const leave = await leaveService.createLeave(
@@ -119,6 +128,8 @@ router.patch('/:id/approve', async (req: Request, res: Response, next: NextFunct
   try {
     if (req.user!.role !== 'ADMIN') throw new ForbiddenError();
     const leave = await leaveService.approveLeave(req.params.id as string, req.user!.userId);
+    // 通知员工
+    notifyEmployee(leave, 'APPROVED');
     res.json(leave);
   } catch (err) {
     next(err);
@@ -130,6 +141,8 @@ router.patch('/:id/reject', async (req: Request, res: Response, next: NextFuncti
   try {
     if (req.user!.role !== 'ADMIN') throw new ForbiddenError();
     const leave = await leaveService.rejectLeave(req.params.id as string, req.user!.userId);
+    // 通知员工
+    notifyEmployee(leave, 'REJECTED');
     res.json(leave);
   } catch (err) {
     next(err);
@@ -146,6 +159,31 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     next(err);
   }
 });
+
+/** 向员工发送审批结果通知 */
+function notifyEmployee(leave: any, newStatus: 'APPROVED' | 'REJECTED') {
+  const wechatUserId = leave.user?.wechatUserId;
+  if (!wechatUserId) return;
+
+  const typeLabel = LEAVE_TYPE_CN[leave.type] || leave.type;
+  const startDate = dayjs.utc(leave.startDate).tz('Asia/Shanghai').format('M月D日');
+  const endDate = dayjs.utc(leave.endDate).tz('Asia/Shanghai').format('M月D日');
+  const dateRange = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
+
+  if (newStatus === 'APPROVED') {
+    const reasonPart = leave.reason ? `\n原因：${leave.reason}` : '';
+    sendAppMessage({
+      touser: wechatUserId,
+      content: `【请假已通过】\n您的请假申请已审批通过！\n\n类型：${typeLabel}\n日期：${dateRange}${reasonPart}\n\n祝您休息愉快！`,
+    }).catch((err: any) => console.error('[WeChat] 审批通过通知发送失败:', err.message));
+  } else {
+    const reasonPart = leave.reason ? `\n原因：${leave.reason}` : '';
+    sendAppMessage({
+      touser: wechatUserId,
+      content: `【请假已拒绝】\n您的请假申请已被拒绝。\n\n类型：${typeLabel}\n日期：${dateRange}${reasonPart}\n\n如有疑问请联系管理员。`,
+    }).catch((err: any) => console.error('[WeChat] 审批拒绝通知发送失败:', err.message));
+  }
+}
 
 /** 向所有已绑定企业微信的管理员发送请假审批通知 */
 async function notifyAdmins(

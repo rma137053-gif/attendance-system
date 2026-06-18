@@ -36,6 +36,12 @@ const SHIFT_TEMPLATES = [
   { label: '下午', start: '12:00', end: '17:00', breakMin: 0 },
 ];
 
+const LEAVE_TYPE_LABEL: Record<string, string> = {
+  ANNUAL: '年假',
+  SICK: '病假',
+  PERSONAL: '事假',
+};
+
 function getShiftColor(startTime: string): { bg: string; dot: string; badge: string } {
   if (startTime < '10:00') return { bg: 'bg-shift-early-light border-shift-early/30 text-shift-early', dot: 'bg-shift-early', badge: 'bg-shift-early text-white' };
   if (startTime < '14:00') return { bg: 'bg-shift-mid-light border-shift-mid/30 text-shift-mid', dot: 'bg-shift-mid', badge: 'bg-shift-mid text-white' };
@@ -60,6 +66,7 @@ export default function ManagePage() {
   const [rosterMap, setRosterMap] = useState<Record<string, CellData>>({});
   const [dirtyCells, setDirtyCells] = useState<Set<string>>(new Set());
   const [restMap, setRestMap] = useState<Record<string, string>>({});
+  const [leaveMap, setLeaveMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [stores, setStores] = useState<Store[]>([]);
@@ -105,11 +112,13 @@ export default function ManagePage() {
       });
 
       const map: Record<string, CellData> = {};
-      (rosterRes.data as any[]).forEach((r) => {
+      const data = rosterRes.data;
+      (data.items as any[]).forEach((r) => {
         const dateStr = dayjs(r.shiftDate).format('YYYY-MM-DD');
         map[makeKey(r.userId, dateStr)] = { id: r.id, startTime: r.startTime, endTime: r.endTime, breakMinutes: r.breakMinutes ?? 0 };
       });
       setRosterMap(map);
+      setLeaveMap(data.leaveMap || {});
       setDirtyCells(new Set());
 
       // Fetch rest days
@@ -165,7 +174,7 @@ export default function ManagePage() {
       const res = await api.get('/roster', { params });
       const newMap = { ...rosterMap };
       const newDirty = new Set(dirtyCells);
-      (res.data as any[]).forEach((r) => {
+      (res.data.items as any[]).forEach((r) => {
         const oldDate = dayjs(r.shiftDate);
         const newDate = oldDate.add(7, 'day');
         const dateStr = newDate.format('YYYY-MM-DD');
@@ -290,7 +299,7 @@ export default function ManagePage() {
               endDate: weekEnd.format('YYYY-MM-DD'),
             },
           });
-          (rosterRes.data as any[]).forEach((r) => {
+          (rosterRes.data.items as any[]).forEach((r) => {
             const dateStr = dayjs(r.shiftDate).format('YYYY-MM-DD');
             originalMap[makeKey(r.userId, dateStr)] = r.id;
           });
@@ -486,22 +495,34 @@ export default function ManagePage() {
                         const cell = rosterMap[makeKey(emp.id, dateStr)];
                         const dirty = dirtyCells.has(makeKey(emp.id, dateStr));
                         const isRest = restMap[emp.id] === dateStr;
+                        const leaveType = leaveMap[makeKey(emp.id, dateStr)];
+
+                        let cellStyle = 'bg-gray-100 text-gray-400';
+                        if (leaveType) {
+                          cellStyle = 'bg-amber-100 text-amber-700';
+                        } else if (cell) {
+                          cellStyle = getShiftColor(cell.startTime).badge;
+                        } else if (isRest) {
+                          cellStyle = 'bg-purple-100 text-purple-600';
+                        }
 
                         return (
                           <td key={dateStr} className="px-0.5 py-2 text-center">
                             <button
                               onClick={() => openEditor(emp.id, dateStr, emp.name)}
                               className={`w-full px-1 py-3 rounded-lg text-sm font-semibold transition-all active:scale-90
-                                ${cell
-                                  ? `${getShiftColor(cell.startTime).badge}`
-                                  : isRest
-                                  ? 'bg-purple-100 text-purple-600'
-                                  : 'bg-gray-100 text-gray-400'
-                                }
+                                ${cellStyle}
                                 ${dirty ? 'ring-2 ring-brand/50 ring-offset-1' : ''}
                               `}
                             >
-                              {cell ? <><span>{cell.startTime}</span><br /><span>{cell.endTime}</span></> : isRest ? '休' : '—'}
+                              {cell ? (
+                                <>
+                                  <span>{cell.startTime}</span><br /><span>{cell.endTime}</span>
+                                  {leaveType && <div className="text-xs mt-0.5 font-bold">{LEAVE_TYPE_LABEL[leaveType] || '请假'}</div>}
+                                </>
+                              ) : leaveType ? (
+                                <span className="text-xs font-bold">{LEAVE_TYPE_LABEL[leaveType] || '假'}</span>
+                              ) : isRest ? '休' : '—'}
                             </button>
                           </td>
                         );
@@ -523,6 +544,7 @@ export default function ManagePage() {
             <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-shift-early" />早班</span>
             <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-shift-mid" />午班</span>
             <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-shift-late" />晚班</span>
+            <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-amber-100" />请假</span>
             <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-gray-100" />空</span>
             {dirtyCells.size > 0 && (
               <span className="inline-flex items-center gap-1 text-brand">

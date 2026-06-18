@@ -252,7 +252,53 @@ export async function queryRoster(
     }
   }
 
-  return rosters.map((r) => {
+  // Fetch approved leaves for the date range to build leaveMap
+  const leaveMap = new Map<string, string>(); // key: `${userId}_${dateStr}`, value: leaveType
+  if (rosterUserIds.length > 0 || (startDate && endDate)) {
+    const leaveDateFilter: any = {};
+    if (startDate) leaveDateFilter.gte = beijingDayStart(dayjs.tz(startDate, 'Asia/Shanghai'));
+    if (endDate) leaveDateFilter.lte = beijingDayEnd(dayjs.tz(endDate, 'Asia/Shanghai'));
+    if (!startDate && !endDate && rosters.length > 0) {
+      const minDate = rosters.reduce((min, r) => r.shiftDate < min ? r.shiftDate : min, rosters[0].shiftDate);
+      const maxDate = rosters.reduce((max, r) => r.shiftDate > max ? r.shiftDate : max, rosters[0].shiftDate);
+      leaveDateFilter.gte = beijingDayStart(dayjs(minDate).tz('Asia/Shanghai'));
+      leaveDateFilter.lte = beijingDayEnd(dayjs(maxDate).tz('Asia/Shanghai'));
+    }
+
+    if (leaveDateFilter.gte && leaveDateFilter.lte) {
+      const allUserIds = rosterUserIds.length > 0
+        ? rosterUserIds
+        : (userId ? [userId] : []);
+
+      if (allUserIds.length > 0 || requesterRole === 'EMPLOYEE' && requesterUserId) {
+        const leaveQueryIds = allUserIds.length > 0 ? allUserIds : [requesterUserId!];
+        const approvedLeaves = await prisma.leave.findMany({
+          where: {
+            userId: { in: leaveQueryIds },
+            status: 'APPROVED',
+            startDate: { lte: leaveDateFilter.lte },
+            endDate: { gte: leaveDateFilter.gte },
+          },
+          select: { userId: true, startDate: true, endDate: true, type: true },
+        });
+
+        for (const l of approvedLeaves) {
+          let d = dayjs.utc(l.startDate).tz('Asia/Shanghai');
+          const end = dayjs.utc(l.endDate).tz('Asia/Shanghai');
+          while (d.isBefore(end) || d.isSame(end, 'day')) {
+            const dateStr = d.format('YYYY-MM-DD');
+            const key = `${l.userId}_${dateStr}`;
+            if (!leaveMap.has(key)) {
+              leaveMap.set(key, l.type);
+            }
+            d = d.add(1, 'day');
+          }
+        }
+      }
+    }
+  }
+
+  const items = rosters.map((r) => {
     const dateStr = dayjs(r.shiftDate).format('YYYY-MM-DD');
     const clockOutKey = `${r.userId}_${dateStr}`;
     const clockOutMin = clockOutMap.get(clockOutKey);
@@ -264,12 +310,22 @@ export async function queryRoster(
         overtimeMinutes = clockOutMin - endMin;
       }
     }
+    const leaveKey = `${r.userId}_${dateStr}`;
     return {
       ...r,
       shiftDate: formatBeijing(r.shiftDate),
       overtimeMinutes,
+      leaveType: leaveMap.get(leaveKey) || null,
     };
   });
+
+  // Convert leaveMap to plain object keyed by `${userId}_${dateStr}`
+  const leaveMapObj: Record<string, string> = {};
+  for (const [k, v] of leaveMap) {
+    leaveMapObj[k] = v;
+  }
+
+  return { items, leaveMap: leaveMapObj };
 }
 
 export async function getTodayRoster(userId: string, requesterStoreId: string | null, role?: string) {

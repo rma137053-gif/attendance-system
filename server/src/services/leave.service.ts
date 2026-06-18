@@ -146,7 +146,7 @@ export async function approveLeave(leaveId: string, approverId: string) {
     where: { id: leaveId },
     data: { status: 'APPROVED', approverId },
     include: {
-      user: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true, wechatUserId: true } },
       approver: { select: { id: true, name: true } },
     },
   });
@@ -161,7 +161,7 @@ export async function rejectLeave(leaveId: string, approverId: string) {
     where: { id: leaveId },
     data: { status: 'REJECTED', approverId },
     include: {
-      user: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true, wechatUserId: true } },
       approver: { select: { id: true, name: true } },
     },
   });

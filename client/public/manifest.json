@@ -1,0 +1,22 @@
+{
+  "name": "考勤管理系统",
+  "short_name": "考勤管理",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fdf8f0",
+  "theme_color": "#d4a853",
+  "description": "多门店员工考勤管理系统",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

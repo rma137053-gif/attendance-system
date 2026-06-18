@@ -64,6 +64,12 @@ export async function upsertRestDay(
   const restDay = dayjs.tz(restDate, 'Asia/Shanghai');
   if (!restDay.isValid()) throw new BadRequestError('无效的日期');
 
+  // 仅允许周一至周五（管理员也受此限制）
+  const dayOfWeek = restDay.day();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    throw new BadRequestError('休息日只能选择周一至周五，周六周日休息请使用请假功能');
+  }
+
   const weekStartDay = weekStart
     ? dayjs.tz(weekStart, 'Asia/Shanghai')
     : restDay.startOf('isoWeek');

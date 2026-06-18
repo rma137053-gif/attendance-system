@@ -36,12 +36,13 @@ export async function getAccessToken(): Promise<string> {
   return cachedToken!;
 }
 
-/** 向指定员工发送应用消息（支持 text 和 textcard） */
+/** 向指定员工发送应用消息（支持 text、textcard、markdown） */
 export async function sendAppMessage(params: {
   touser: string;
   content: string;
   title?: string; // 提供 title 时使用 textcard 卡片格式
   url?: string;
+  msgtype?: 'text' | 'textcard' | 'markdown'; // 默认 text，提供 title 时默认 textcard
 }): Promise<{ success: boolean; error?: string }> {
   if (!config.wechat.enabled) {
     console.log('[WeChat] 推送未启用，跳过');
@@ -50,18 +51,20 @@ export async function sendAppMessage(params: {
 
   try {
     const token = await getAccessToken();
-    const useCard = !!params.title;
+    const type = params.msgtype || (params.title ? 'textcard' : 'text');
     const body: any = {
       touser: params.touser,
-      msgtype: useCard ? 'textcard' : 'text',
+      msgtype: type,
       agentid: Number(config.wechat.agentId),
     };
-    if (useCard) {
+    if (type === 'textcard') {
       body.textcard = {
         title: params.title,
         description: params.content.replace(/\n/g, '<br>'),
         url: params.url || '',
       };
+    } else if (type === 'markdown') {
+      body.markdown = { content: params.content };
     } else {
       body.text = { content: params.content };
     }
@@ -201,7 +204,7 @@ export async function queryWeeklyRosterForWechatUser(
 ): Promise<string | null> {
   const user = await prisma.user.findFirst({
     where: { wechatUserId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, storeId: true },
   });
   if (!user) return null;
 
@@ -214,11 +217,28 @@ export async function queryWeeklyRosterForWechatUser(
       userId: user.id,
       shiftDate: {
         gte: beijingDayStart(monday),
-        lte: beijingDayEnd(now),
+        lte: beijingDayEnd(sunday),
       },
     },
+    include: { store: { select: { name: true } } },
     orderBy: { shiftDate: 'asc' },
   });
+
+  // 本周休息日
+  const weekStartUTC = monday.utc().toDate();
+  const rest = await prisma.weeklyRest.findUnique({
+    where: { userId_weekStart: { userId: user.id, weekStart: weekStartUTC } },
+  });
+  const restDateStr = rest
+    ? dayjs.utc(rest.restDate).tz('Asia/Shanghai').format('M月D日')
+    : null;
+
+  // 门店名称
+  let storeName = '';
+  if (user.storeId) {
+    const store = await prisma.store.findUnique({ where: { id: user.storeId }, select: { name: true } });
+    storeName = store?.name || '';
+  }
 
   const rosterByDate = new Map<string, (typeof rosters)[number]>();
   for (const r of rosters) {
@@ -229,6 +249,8 @@ export async function queryWeeklyRosterForWechatUser(
   let totalMinutes = 0;
   const lines: string[] = [];
   lines.push(`【本周排班】${monday.format('M月D日')} - ${sunday.format('M月D日')}`);
+  lines.push(`${user.name}${storeName ? ` · ${storeName}` : ''}`);
+  if (restDateStr) lines.push(`休息日：${restDateStr}`);
   lines.push('');
 
   for (let i = 0; i < 7; i++) {
@@ -237,16 +259,19 @@ export async function queryWeeklyRosterForWechatUser(
     const weekLabel = WEEKDAY_CN[d.day()];
     const dateLabel = d.format('M/D');
     const roster = rosterByDate.get(dateStr);
+    const isRest = restDateStr === d.format('M月D日');
 
     if (roster) {
       const [sh, sm] = roster.startTime.split(':').map(Number);
       const [eh, em] = roster.endTime.split(':').map(Number);
       const workMin = (eh * 60 + em) - (sh * 60 + sm) - (roster.breakMinutes || 0);
       totalMinutes += workMin;
-      const breakStr = roster.breakMinutes > 0 ? ` 休息${roster.breakMinutes}分钟` : '';
-      lines.push(`${weekLabel} (${dateLabel}) ${roster.startTime}-${roster.endTime}${breakStr}`);
+      const breakStr = roster.breakMinutes > 0 ? ` 休${roster.breakMinutes}分钟` : '';
+      lines.push(`${weekLabel} ${dateLabel} | ${roster.startTime}-${roster.endTime}${breakStr}`);
+    } else if (isRest) {
+      lines.push(`${weekLabel} ${dateLabel} | 🏠 休息日`);
     } else {
-      lines.push(`${weekLabel} (${dateLabel}) 休息`);
+      lines.push(`${weekLabel} ${dateLabel} | 未排班`);
     }
   }
 

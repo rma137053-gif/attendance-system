@@ -59,7 +59,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const effectiveStoreId = req.user!.role === 'ADMIN' && req.query.storeId
       ? (req.query.storeId as string)
       : req.user!.storeId;
-    const users = await userService.listEmployees(effectiveStoreId);
+    const includeInactive = req.query.includeInactive === 'true';
+    const users = await userService.listEmployees(effectiveStoreId, includeInactive);
     res.json(users);
   } catch (err) {
     next(err);

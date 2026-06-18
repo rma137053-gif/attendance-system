@@ -29,6 +29,7 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
 // ==================== Session Management ====================
 
 type SessionState =
+  | 'REST_SELECT_WEEK'
   | 'REST_SELECT_DAY'
   | 'REST_CONFIRM'
   | 'LEAVE_SELECT_TYPE'
@@ -236,13 +237,13 @@ export async function handleBotMessage(
   // ---- Global command: 取消 ----
   if (/^取消$/.test(input)) {
     clearSession(wechatUserId);
-    return '已取消当前操作。\n\n您可以随时输入：\n· 排班 - 查看本周排班\n· 选休 - 选择休息日\n· 请假 - 申请请假\n· 查询 - 查看状态';
+    return '已取消当前操作。\n\n您可以随时输入：\n· 排班 - 查看本周排班（含门店、时间）\n· 选休 - 选择休息日（周一~周五，可提前选）\n· 请假 - 申请请假\n· 查询 - 查看状态';
   }
 
   // ---- Global command: 帮助 ----
   if (/^(帮助|help|功能)$/.test(input)) {
     clearSession(wechatUserId);
-    return '我可以帮您：\n· 输入「排班」查看本周排班\n· 输入「选休」选择本周休息日\n· 输入「请假」申请请假\n· 输入「查询」查看休息日和请假状态\n· 操作中随时输入「取消」退出';
+    return '我可以帮您：\n· 输入「排班」查看本周排班（含门店、工时）\n· 输入「选休」选择休息日（周一至周五，支持提前选未来周）\n· 输入「请假」申请请假\n· 输入「查询」查看休息日和请假状态\n\n💡 周末休息请用「请假」功能\n· 操作中随时输入「取消」退出';
   }
 
   // ---- Check active session ----
@@ -270,10 +271,8 @@ export async function handleBotMessage(
 
   // ---- Start 选休 ----
   if (/^(选休|选修|休息日|选择休息)$/.test(input)) {
-    const monday = getThisMonday();
-    const sunday = monday.add(6, 'day');
     setSession(wechatUserId, {
-      state: 'REST_SELECT_DAY',
+      state: 'REST_SELECT_WEEK',
       userId: user.userId,
       storeId: user.storeId,
       role: user.role,
@@ -281,7 +280,19 @@ export async function handleBotMessage(
       stepData: {},
       createdAt: Date.now(),
     });
-    return `请选择本周休息日，直接回复日期即可，例如：\n· 周三\n· 明天\n· 5月20日\n\n本周范围：${monday.format('M月D日')}（周一）~ ${sunday.format('M月D日')}（周日）`;
+    const thisMonday = getThisMonday();
+    const nextMonday = thisMonday.add(7, 'day');
+    const weekAfterNext = thisMonday.add(14, 'day');
+
+    return [
+      '请选择要选休的周，直接回复数字：',
+      `1. 本周（${thisMonday.format('M月D日')}~${thisMonday.add(6, 'day').format('M月D日')}）`,
+      `2. 下周（${nextMonday.format('M月D日')}~${nextMonday.add(6, 'day').format('M月D日')}）`,
+      `3. 下下周（${weekAfterNext.format('M月D日')}~${weekAfterNext.add(6, 'day').format('M月D日')}）`,
+      '',
+      '也可以直接输入日期（如 5月20日）指定要选休的周，',
+      '回复「否」取消',
+    ].join('\n');
   }
 
   // ---- Start 请假 ----
@@ -310,6 +321,8 @@ async function handleSessionInput(
   input: string,
 ): Promise<string> {
   switch (session.state) {
+    case 'REST_SELECT_WEEK':
+      return handleRestSelectWeek(wechatUserId, session, input);
     case 'REST_SELECT_DAY':
       return handleRestSelectDay(wechatUserId, session, input);
     case 'REST_CONFIRM':
@@ -330,46 +343,171 @@ async function handleSessionInput(
 
 // ==================== Rest Day Handlers ====================
 
+/** 选休第一步：选择选休周 */
+async function handleRestSelectWeek(
+  wechatUserId: string,
+  session: Session,
+  input: string,
+): Promise<string> {
+  const trimmed = input.trim();
+
+  // "否" / "不" → cancel
+  if (/^[否不]$/.test(trimmed)) {
+    clearSession(wechatUserId);
+    return '已取消选休操作。';
+  }
+
+  const thisMonday = getThisMonday();
+  let targetMonday: dayjs.Dayjs | null = null;
+
+  // "1" / "本周"
+  if (/^1$|^本周$/.test(trimmed)) {
+    targetMonday = thisMonday;
+  }
+  // "2" / "下周"
+  else if (/^2$|^下周$/.test(trimmed)) {
+    targetMonday = thisMonday.add(7, 'day');
+  }
+  // "3" / "下下周"
+  else if (/^3$|^下下周$/.test(trimmed)) {
+    targetMonday = thisMonday.add(14, 'day');
+  }
+  // Try parsing a date, then get its Monday
+  else {
+    const parsed = parseDate(trimmed, thisMonday);
+    if (parsed) {
+      targetMonday = parsed.startOf('isoWeek');
+    }
+  }
+
+  if (!targetMonday) {
+    return [
+      '未能识别，请回复数字选择：',
+      `1. 本周（${thisMonday.format('M月D日')}~${thisMonday.add(6, 'day').format('M月D日')}）`,
+      `2. 下周（${thisMonday.add(7, 'day').format('M月D日')}~${thisMonday.add(13, 'day').format('M月D日')}）`,
+      `3. 下下周（${thisMonday.add(14, 'day').format('M月D日')}~${thisMonday.add(20, 'day').format('M月D日')}）`,
+      '',
+      '或直接输入日期（如 5月20日）',
+      '回复「否」取消',
+    ].join('\n');
+  }
+
+  // Can't select past weeks
+  if (targetMonday.isBefore(thisMonday)) {
+    return `不能选择过去的周，请选择本周或未来的周。\n\n当前时间：${dayjs().tz('Asia/Shanghai').format('M月D日')}`;
+  }
+
+  // Check if this week's rest day can still be modified
+  const sunday = targetMonday.add(6, 'day');
+  const now = dayjs().tz('Asia/Shanghai').startOf('day');
+
+  // Only produce Mon-Fri buttons
+  const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  const availableDays: string[] = [];
+  const unavailableDays: string[] = [];
+
+  for (let i = 0; i < 7; i++) {
+    const d = targetMonday.add(i, 'day');
+    const dateLabel = `${weekdays[i]} ${d.format('M月D日')}`;
+
+    if (d.isBefore(now)) {
+      unavailableDays.push(`${dateLabel}（已过期）`);
+    } else if (i >= 5) {
+      // Sat(i=5) or Sun(i=6) — not allowed for rest day selection
+      unavailableDays.push(`${dateLabel}（周末休息请用请假功能）`);
+    } else {
+      availableDays.push(`${weekdays[i]} ${d.format('M月D日')}`);
+    }
+  }
+
+  session.stepData.targetMonday = targetMonday.format('YYYY-MM-DD');
+  session.state = 'REST_SELECT_DAY';
+  setSession(wechatUserId, session);
+
+  const lines: string[] = [];
+  lines.push(`已选择：${targetMonday.format('M月D日')}~${sunday.format('M月D日')} 这一周`);
+  lines.push('');
+  lines.push('可选休息日（周一~周五）：');
+  lines.push(...availableDays.map((d) => `  · ${d}`));
+  if (unavailableDays.length > 0) {
+    lines.push('');
+    lines.push('不可选：');
+    lines.push(...unavailableDays.map((d) => `  ✕ ${d}`));
+  }
+  lines.push('');
+  lines.push('回复日期选择休息日，如「周三」或「5月20日」，回复「否」取消');
+
+  return lines.join('\n');
+}
+
+/** 选休第二步：选择具体日期 */
 async function handleRestSelectDay(
   wechatUserId: string,
   session: Session,
   input: string,
 ): Promise<string> {
-  // "否" / "不" → cancel
-  if (/^[否不]$/.test(input.trim())) {
-    clearSession(wechatUserId);
-    return '已取消选休操作。';
+  const trimmed = input.trim();
+
+  // "否" / "不" → back to week selection
+  if (/^[否不]$/.test(trimmed)) {
+    session.state = 'REST_SELECT_WEEK';
+    session.stepData = {};
+    setSession(wechatUserId, session);
+    const thisMonday = getThisMonday();
+    return [
+      '请重新选择要选休的周：',
+      `1. 本周（${thisMonday.format('M月D日')}~${thisMonday.add(6, 'day').format('M月D日')}）`,
+      `2. 下周（${thisMonday.add(7, 'day').format('M月D日')}~${thisMonday.add(13, 'day').format('M月D日')}）`,
+      `3. 下下周`,
+      '回复「否」取消',
+    ].join('\n');
   }
 
-  const monday = getThisMonday();
-  const sunday = monday.add(6, 'day');
-  const selected = parseDate(input, monday);
+  const targetMonday = dayjs.tz(session.stepData.targetMonday, 'Asia/Shanghai');
+  const selected = parseDate(trimmed, targetMonday);
 
   if (!selected) {
-    return `未能识别您输入的日期，请尝试以下格式：\n· 周三\n· 明天\n· 5月20日\n\n本周范围：${monday.format('M月D日')}~${sunday.format('M月D日')}，回复「否」取消`;
+    return `未能识别您输入的日期，请回复：\n· 周一/周二/...\n· 或具体日期如 5月20日\n\n回复「否」回到上一步`;
   }
 
-  // 是否在本周范围内
-  if (selected.isBefore(monday) || selected.isAfter(sunday)) {
-    return `请选择本周内的日期（${monday.format('M月D日')}~${sunday.format('M月D日')}），回复「否」取消`;
+  // Check within the week
+  const sunday = targetMonday.add(6, 'day');
+  if (selected.isBefore(targetMonday) || selected.isAfter(sunday)) {
+    return `请选择目标周内的日期（${targetMonday.format('M月D日')}~${sunday.format('M月D日')}），回复「否」回到上一步`;
   }
 
-  // 是否已过期
+  // Check not in the past
   const now = dayjs().tz('Asia/Shanghai').startOf('day');
   if (selected.isBefore(now)) {
-    return '该日期已过，无法选择。请选择今天或未来的日期，回复「否」取消';
+    return '该日期已过，无法选择。请选择今天或未来的日期，回复「否」回到上一步';
+  }
+
+  // Check Mon-Fri only
+  const dayOfWeek = selected.day();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    clearSession(wechatUserId);
+    return [
+      '⛔ 周六和周日不能选为休息日。',
+      '',
+      '如需在周末休息，请使用「请假」功能申请。',
+      '周一至周五为可选休息日。',
+      '',
+      '输入「请假」开始请假申请',
+    ].join('\n');
   }
 
   const dateStr = selected.format('YYYY-MM-DD');
   const weekday = WEEKDAY_CN[selected.day()];
+  const weekLabel = `${targetMonday.format('M月D日')}~${sunday.format('M月D日')}`;
 
   session.stepData.selectedDate = dateStr;
   session.state = 'REST_CONFIRM';
   setSession(wechatUserId, session);
 
-  return `确认为您设置本周休息日为 ${selected.format('M月D日')}（${weekday}）？\n回复「是」确认，「否」重新选择`;
+  return `确认在 ${weekLabel} 这一周，选择 ${selected.format('M月D日')}（${weekday}）作为休息日？\n\n回复「是」确认，「否」重新选择日期`;
 }
 
+/** 选休第三步：确认提交 */
 async function handleRestConfirm(
   wechatUserId: string,
   session: Session,
@@ -377,34 +515,35 @@ async function handleRestConfirm(
 ): Promise<string> {
   const trimmed = input.trim();
 
-  // "否" / "不" → back to select
   if (/^[否不]$/.test(trimmed)) {
-    const monday = getThisMonday();
-    const sunday = monday.add(6, 'day');
     session.state = 'REST_SELECT_DAY';
     session.stepData = {};
     setSession(wechatUserId, session);
-    return `请重新选择休息日（${monday.format('M月D日')}~${sunday.format('M月D日')}），回复「否」取消`;
+    const monday = dayjs.tz(session.stepData.targetMonday, 'Asia/Shanghai');
+    const sunday = monday.add(6, 'day');
+    return `请重新选择休息日（${monday.format('M月D日')}~${sunday.format('M月D日')}），回复「否」回到选周`;
   }
 
-  // "是" / "确认" / "好" / "可以" → confirm
   if (/^(是|确认|好|可以|ok|yes|对|嗯|行)$/i.test(trimmed)) {
     const dateStr = session.stepData.selectedDate;
+    const targetMonday = session.stepData.targetMonday;
     try {
       const result = await upsertRestDay(
         session.userId,
         session.storeId,
         dateStr,
         { userId: session.userId, role: session.role, storeId: session.storeId },
+        targetMonday,
       );
       const restDate = dayjs.utc(result.restDate).tz('Asia/Shanghai');
       const weekday = WEEKDAY_CN[restDate.day()];
+      const weekStart = dayjs.tz(targetMonday, 'Asia/Shanghai');
       clearSession(wechatUserId);
-      return `✅ 已设置！\n本周休息日：${restDate.format('M月D日')}（${weekday}）\n\n输入「查询」可查看本周状态`;
+      return `✅ 已设置！\n${weekStart.format('M月D日')}~${weekStart.add(6, 'day').format('M月D日')} 这一周\n休息日：${restDate.format('M月D日')}（${weekday}）\n\n输入「查询」可查看当前状态`;
     } catch (err: any) {
       clearSession(wechatUserId);
       const msg = err.message || '操作失败';
-      // Friendly error messages
+      if (msg.includes('周一') || msg.includes('周五') || msg.includes('周末')) return `⛔ ${msg}`;
       if (msg.includes('截止时间')) return `⛔ ${msg}\n\n如需帮助请联系管理员。`;
       if (msg.includes('排班')) return `⛔ ${msg}\n\n请重新发起选休，选择一个没有排班的日期。`;
       return `⛔ ${msg}`;

@@ -28,6 +28,7 @@ export default function UserManagement() {
   const [editUser, setEditUser] = useState<User | null>(null);
   const [form, setForm] = useState({ name: '', email: '', password: '', storeId: '', pin: '' });
   const [error, setError] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const { success } = useToast();
 
   // Confirm dialog state
@@ -44,8 +45,9 @@ export default function UserManagement() {
 
   const fetchData = async () => {
     try {
+      const params = showInactive ? { includeInactive: 'true' } : {};
       const [usersRes, storesRes] = await Promise.all([
-        api.get('/users'),
+        api.get('/users', { params }),
         api.get('/users/stores'),
       ]);
       setUsers(usersRes.data);
@@ -59,7 +61,7 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [showInactive]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +90,7 @@ export default function UserManagement() {
       open: true,
       title: `${newStatus}员工`,
       message: isDeleting
-        ? `确定要停用员工「${user.name}」吗？将删除该员工的所有数据（排班、打卡记录等），不可撤销。`
+        ? `确定要停用员工「${user.name}」吗？停用后将被移除排班、无法打卡，但历史数据保留。`
         : `确定要启用员工「${user.name}」吗？`,
       onConfirm: async () => {
         try {
@@ -128,16 +130,27 @@ export default function UserManagement() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-gray-800">员工管理</h1>
-        <button
-          onClick={() => {
-            setEditUser(null);
-            setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '', pin: '' });
-            setShowForm(true);
-          }}
-          className="bg-brand text-white px-4 py-2 rounded-lg hover:bg-brand-dark transition-colors text-sm"
-        >
-          + 添加员工
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-brand focus:ring-brand"
+            />
+            显示停用员工
+          </label>
+          <button
+            onClick={() => {
+              setEditUser(null);
+              setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '', pin: '' });
+              setShowForm(true);
+            }}
+            className="bg-brand text-white px-4 py-2 rounded-lg hover:bg-brand-dark transition-colors text-sm"
+          >
+            + 添加员工
+          </button>
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}

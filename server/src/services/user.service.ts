@@ -45,8 +45,9 @@ export async function listEmployeeRoster(storeId: string | null) {
   }));
 }
 
-export async function listEmployees(storeId: string | null) {
-  const where: any = { status: 'ACTIVE' };
+export async function listEmployees(storeId: string | null, includeInactive = false) {
+  const where: any = {};
+  if (!includeInactive) where.status = 'ACTIVE';
   if (storeId) where.storeId = storeId;
   return prisma.user.findMany({
     where,
@@ -147,15 +148,11 @@ export async function toggleEmployeeStatus(id: string, storeId: string | null) {
   const user = await prisma.user.findFirst({ where });
   if (!user) throw new NotFoundError('员工不存在');
 
-  if (user.status === 'ACTIVE') {
-    await prisma.user.delete({ where: { id } });
-    return { deleted: true, id: user.id, name: user.name };
-  }
+  const newStatus = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-  // 已停用的员工重新激活
   return prisma.user.update({
     where: { id },
-    data: { status: 'ACTIVE' },
+    data: { status: newStatus },
     select: { id: true, email: true, name: true, role: true, status: true, storeId: true, store: { select: { id: true, name: true } } },
   });
 }

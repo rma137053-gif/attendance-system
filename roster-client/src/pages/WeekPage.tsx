@@ -11,6 +11,7 @@ interface RosterItem {
   endTime: string;
   user: { id: string; name: string };
   store?: { id: string; name: string };
+  leaveType?: string | null;
 }
 
 export default function WeekPage() {
@@ -19,6 +20,7 @@ export default function WeekPage() {
   const [weekStart, setWeekStart] = useState(dayjs().startOf('week').add(1, 'day'));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [restMap, setRestMap] = useState<Record<string, string>>({});
+  const [leaveMap, setLeaveMap] = useState<Record<string, string>>({});
 
   const weekEnd = weekStart.add(6, 'day');
   const days: dayjs.Dayjs[] = [];
@@ -36,9 +38,11 @@ export default function WeekPage() {
         },
       })
       .then(async (res) => {
-        setRosters(res.data);
+        const data = res.data;
+        setRosters(data.items);
+        setLeaveMap(data.leaveMap || {});
         // Fetch rest days for stores in roster data
-        const storeIds = [...new Set((res.data as RosterItem[]).map((r) => r.store?.id).filter(Boolean))];
+        const storeIds = [...new Set((data.items as RosterItem[]).map((r) => r.store?.id).filter(Boolean))];
         const allRestMap: Record<string, string> = {};
         for (const storeId of storeIds) {
           try {
@@ -73,6 +77,12 @@ export default function WeekPage() {
     if (startTime < '14:00') return 'bg-shift-mid';
     return 'bg-shift-late';
   }
+
+  const LEAVE_TYPE_LABEL: Record<string, string> = {
+    ANNUAL: '年假',
+    SICK: '病假',
+    PERSONAL: '事假',
+  };
 
   const handlePrint = () => {
     window.print();
@@ -161,11 +171,15 @@ export default function WeekPage() {
                             {dayRosters.length > 0 ? (
                               dayRosters.map((r) => {
                                 const isRest = restMap[r.user.id] === dayKey;
+                                const leaveType = r.leaveType || leaveMap[`${r.user.id}_${dayKey}`];
                                 return (
                                   <span key={r.id} className="inline-flex items-center gap-1.5 text-sm">
                                     <span className={`w-1.5 h-1.5 rounded-full ${getShiftDotColor(r.startTime)}`} />
                                     <span className="text-gray-700 font-medium">{r.user.name}</span>
                                     <span className="text-gray-400 text-xs">{r.startTime}-{r.endTime}</span>
+                                    {leaveType && (
+                                      <span className="text-xs px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{LEAVE_TYPE_LABEL[leaveType] || '假'}</span>
+                                    )}
                                     {isRest && (
                                       <span className="text-xs px-1 py-0.5 rounded bg-purple-100 text-purple-600 font-medium">休</span>
                                     )}
