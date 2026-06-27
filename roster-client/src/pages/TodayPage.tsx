@@ -1,8 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import Spinner from '../components/Spinner';
+
+interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+  createdAt: string;
+}
+
+interface RosterNotification {
+  id: string;
+  userName: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+const NOTIFY_KEY = 'roster_last_notify';
 
 interface RosterUser {
   id: string;
@@ -37,6 +55,10 @@ export default function TodayPage() {
   const { user } = useAuth();
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [notifications, setNotifications] = useState<RosterNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifiedRef = useRef(false);
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'STORE_ADMIN';
 
   useEffect(() => {
@@ -44,6 +66,45 @@ export default function TodayPage() {
       .then((res) => setData(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Fetch announcements
+    api.get('/announcements', { params: { page: 1, pageSize: 3 } })
+      .then((res) => setAnnouncements(res.data.items))
+      .catch(() => {});
+
+    // Poll roster notifications
+    const pollNotifications = async () => {
+      try {
+        const lastCheck = localStorage.getItem(NOTIFY_KEY) || '';
+        const res = await api.get('/roster/notifications', { params: { since: lastCheck || undefined } });
+        const items: RosterNotification[] = res.data;
+        if (items.length > 0 && !notifiedRef.current) {
+          setNotifications(items);
+          setShowNotifications(true);
+          notifiedRef.current = true;
+          // Try Capacitor local notification (available only in APK WebView)
+          try {
+            const cap = (window as any).Capacitor;
+            if (cap?.Plugins?.LocalNotifications) {
+              await cap.Plugins.LocalNotifications.schedule({
+                notifications: [{
+                  title: '排班更新',
+                  body: `${items.length} 条排班变动，点击查看`,
+                  id: 1,
+                  schedule: { at: new Date(Date.now() + 1000) },
+                }],
+              });
+            }
+          } catch {
+            // Capacitor not available (web browser)
+          }
+        }
+        localStorage.setItem(NOTIFY_KEY, new Date().toISOString());
+      } catch {
+        // ignore polling errors
+      }
+    };
+    pollNotifications();
   }, []);
 
   if (loading) {
@@ -65,6 +126,30 @@ export default function TodayPage() {
 
     return (
       <div className="animate-fade-in space-y-4">
+        {showNotifications && notifications.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 cursor-pointer" onClick={() => setShowNotifications(false)}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">🔔</span>
+              <span className="text-sm font-semibold text-amber-700">排班更新提醒</span>
+              <span className="text-xs text-amber-500 ml-auto">点击关闭</span>
+            </div>
+            {notifications.slice(0, 3).map((n) => (
+              <p key={n.id} className="text-xs text-amber-600 ml-7">
+                {n.shiftDate} · {n.userName} · {n.startTime}-{n.endTime}
+              </p>
+            ))}
+            {notifications.length > 3 && <p className="text-xs text-amber-500 ml-7 mt-1">...还有 {notifications.length - 3} 条</p>}
+          </div>
+        )}
+        {announcements.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-semibold text-blue-700">📢 {announcements[0].title}</span>
+              <span className="text-xs text-blue-400 ml-auto">{announcements[0].createdAt.split('T')[0]}</span>
+            </div>
+            <p className="text-xs text-blue-600">{announcements[0].content}</p>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <h1 className="text-base font-bold text-gray-800">今日排班</h1>
           {(() => {
@@ -133,6 +218,29 @@ export default function TodayPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {showNotifications && notifications.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3" onClick={() => setShowNotifications(false)}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">🔔</span>
+            <span className="text-sm font-semibold text-amber-700">排班更新提醒</span>
+            <span className="text-xs text-amber-500 ml-auto">点击关闭</span>
+          </div>
+          {notifications.slice(0, 3).map((n) => (
+            <p key={n.id} className="text-xs text-amber-600 ml-7">
+              {n.shiftDate} · {n.userName} · {n.startTime}-{n.endTime}
+            </p>
+          ))}
+        </div>
+      )}
+      {announcements.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-semibold text-blue-700">📢 {announcements[0].title}</span>
+            <span className="text-xs text-blue-400 ml-auto">{announcements[0].createdAt.split('T')[0]}</span>
+          </div>
+          <p className="text-xs text-blue-600">{announcements[0].content}</p>
+        </div>
+      )}
       {myShift ? (
         <>
           <ShiftCard startTime={myShift.startTime} endTime={myShift.endTime} />

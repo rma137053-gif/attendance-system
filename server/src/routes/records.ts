@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
 import { requireStoreAdmin } from '../middleware/requireStoreAdmin';
 import { requireAdmin } from '../middleware/requireAdmin';
@@ -137,6 +138,48 @@ router.get('/', requireStoreAdmin, async (req: Request, res: Response, next: Nex
 router.patch('/:id/anomaly', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const record = await recordService.toggleAnomaly(req.params.id as string, req.user!.storeId);
+    res.json(record);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ADMIN only: manually create a clock record (补录打卡)
+const manualSchema = z.object({
+  userId: z.string().min(1, '员工不能为空'),
+  type: z.enum(['CLOCK_IN', 'CLOCK_OUT'], { message: '类型无效' }),
+  timestamp: z.string().min(1, '时间不能为空'),
+  note: z.string().optional(),
+});
+
+router.post('/manual', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = manualSchema.parse(req.body);
+    const record = await recordService.createManualRecord({
+      ...body,
+      requesterStoreId: req.user!.storeId,
+    });
+    res.status(201).json(record);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ADMIN only: update an existing clock record (编辑打卡)
+const updateSchema = z.object({
+  type: z.enum(['CLOCK_IN', 'CLOCK_OUT']).optional(),
+  timestamp: z.string().optional(),
+  note: z.string().optional(),
+});
+
+router.put('/:id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = updateSchema.parse(req.body);
+    const record = await recordService.updateRecord({
+      recordId: req.params.id as string,
+      ...body,
+      requesterStoreId: req.user!.storeId,
+    });
     res.json(record);
   } catch (err) {
     next(err);

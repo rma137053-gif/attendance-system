@@ -74,6 +74,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <NavLink to="/admin/reports" label="报表" current={location.pathname} />
                   <NavLink to="/admin/audit-logs" label="操作日志" current={location.pathname} />
                   <NavLink to="/admin/leaves" label="请假管理" current={location.pathname} />
+                  <NavLink to="/admin/announcements" label="公告管理" current={location.pathname} />
                 </>
               ) : isStoreAdmin ? (
                 <>
@@ -81,6 +82,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <NavLink to="/store-admin/clock" label="打卡" current={location.pathname} />
                   <NavLink to="/store-admin/employees" label="员工管理" current={location.pathname} />
                   <NavLink to="/store-admin/records" label="打卡记录" current={location.pathname} />
+                  <NavLink to="/admin/announcements" label="公告管理" current={location.pathname} />
                 </>
               ) : (
                 <>

@@ -85,4 +85,19 @@ router.delete(
   },
 );
 
+// Get recent roster notifications for the current user
+router.get('/notifications', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const since = req.query.since as string | undefined;
+    const result = await rosterService.getRecentNotifications(
+      req.user!.userId,
+      req.user!.storeId,
+      since,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

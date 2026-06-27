@@ -251,6 +251,128 @@ export async function getPhotoForRecord(recordId: string, requesterUserId: strin
   return buffer;
 }
 
+interface CreateManualParams {
+  userId: string;
+  type: 'CLOCK_IN' | 'CLOCK_OUT';
+  timestamp: string;
+  note?: string;
+  requesterStoreId?: string | null;
+}
+
+export async function createManualRecord(params: CreateManualParams) {
+  const { userId, type, timestamp, note, requesterStoreId } = params;
+
+  // Store-scoped admin can only create for their store
+  if (requesterStoreId) {
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) throw new NotFoundError('用户不存在');
+    if (targetUser.storeId !== requesterStoreId) {
+      throw new BadRequestError('只能为本店员工补录');
+    }
+  }
+
+  // Parse the admin-specified Beijing time
+  const beijingMoment = dayjs.tz(timestamp, 'Asia/Shanghai');
+  if (!beijingMoment.isValid()) {
+    throw new BadRequestError('时间格式无效');
+  }
+  const recordTime = beijingMoment.utc().toDate();
+
+  // Look up roster for the given date
+  const dayStart = beijingDayStart(beijingMoment);
+  const dayEnd = beijingDayEnd(beijingMoment);
+  const roster = await prisma.roster.findFirst({
+    where: { userId, shiftDate: { gte: dayStart, lte: dayEnd } },
+  });
+
+  const defaultNote = `管理员手动补录${note ? ` - ${note}` : ''}`;
+
+  const record = await prisma.clockRecord.create({
+    data: {
+      userId,
+      type,
+      photoKey: null,
+      isAnomalous: false,
+      rosterId: roster?.id ?? null,
+      lateMinutes: null,
+      note: defaultNote,
+      createdAt: recordTime,
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true, store: { select: { id: true, name: true } } } },
+    },
+  });
+
+  return {
+    ...record,
+    createdAt: formatBeijing(record.createdAt),
+    hasPhoto: false,
+  };
+}
+
+interface UpdateRecordParams {
+  recordId: string;
+  type?: 'CLOCK_IN' | 'CLOCK_OUT';
+  timestamp?: string;
+  note?: string;
+  requesterStoreId?: string | null;
+}
+
+export async function updateRecord(params: UpdateRecordParams) {
+  const { recordId, type, timestamp, note, requesterStoreId } = params;
+
+  const record = await prisma.clockRecord.findUnique({
+    where: { id: recordId },
+    include: { user: { select: { id: true, name: true, email: true, storeId: true, store: { select: { id: true, name: true } } } } },
+  });
+
+  if (!record) throw new NotFoundError('打卡记录不存在');
+
+  if (requesterStoreId && record.user.storeId !== requesterStoreId) {
+    throw new NotFoundError('打卡记录不存在');
+  }
+
+  const updateData: Prisma.ClockRecordUpdateInput = {};
+
+  if (type) {
+    updateData.type = type;
+  }
+
+  if (timestamp) {
+    const beijingMoment = dayjs.tz(timestamp, 'Asia/Shanghai');
+    if (!beijingMoment.isValid()) {
+      throw new BadRequestError('时间格式无效');
+    }
+    updateData.createdAt = beijingMoment.utc().toDate();
+
+    // Re-link roster based on new date
+    const dayStart = beijingDayStart(beijingMoment);
+    const dayEnd = beijingDayEnd(beijingMoment);
+    const roster = await prisma.roster.findFirst({
+      where: { userId: record.userId, shiftDate: { gte: dayStart, lte: dayEnd } },
+    });
+    updateData.roster = roster ? { connect: { id: roster.id } } : { disconnect: true };
+  }
+
+  if (note !== undefined) {
+    updateData.note = note;
+  }
+
+  const updated = await prisma.clockRecord.update({
+    where: { id: recordId },
+    data: updateData,
+    include: {
+      user: { select: { id: true, name: true, email: true, store: { select: { id: true, name: true } } } },
+    },
+  });
+
+  return {
+    ...updated,
+    createdAt: formatBeijing(updated.createdAt),
+    hasPhoto: !!updated.photoKey,
+  };
+}
+
 export async function toggleAnomaly(recordId: string, requesterStoreId: string | null) {
   const record = await prisma.clockRecord.findUnique({
     where: { id: recordId },

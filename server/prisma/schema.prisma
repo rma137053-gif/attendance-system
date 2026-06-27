@@ -15,6 +15,7 @@ model Store {
   rosters     Roster[]
   leaves      Leave[]        @relation("LeaveStore")
   weeklyRests WeeklyRest[]
+  announcements Announcement[]
 }
 
 model User {
@@ -38,6 +39,7 @@ model User {
   leaves        Leave[]        @relation("LeaveUser")
   approvedLeaves Leave[]       @relation("LeaveApprover")
   weeklyRests    WeeklyRest[]
+  announcements  Announcement[]
 
   @@index([wechatUserId])
 }
@@ -159,4 +161,20 @@ model PushLog {
 
   @@index([userId, createdAt])
   @@index([rosterId])
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  type      String   @default("GENERAL")
+  storeId   String?
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  user  User   @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
 }

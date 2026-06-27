@@ -498,6 +498,47 @@ export async function deleteRoster(rosterId: string, requesterStoreId: string | 
   );
 }
 
+export async function getRecentNotifications(userId: string, storeId: string | null, since?: string) {
+  // Return roster changes for the user's store in the last 7 days
+  const sinceDate = since
+    ? dayjs.tz(since, 'Asia/Shanghai').utc().toDate()
+    : dayjs.utc().subtract(7, 'day').toDate();
+
+  const where: Prisma.RosterWhereInput = {};
+  if (storeId) {
+    where.storeId = storeId;
+  }
+
+  // Find rosters that were created/updated recently for this user's store
+  const rosters = await prisma.roster.findMany({
+    where: {
+      ...where,
+      AND: [
+        {
+          shiftDate: {
+            gte: sinceDate,
+          },
+        },
+      ],
+    },
+    include: {
+      user: { select: { id: true, name: true, wechatUserId: true } },
+    },
+    orderBy: { shiftDate: 'desc' },
+    take: 50,
+  });
+
+  return rosters.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    userName: r.user.name,
+    shiftDate: formatBeijing(r.shiftDate).split('T')[0],
+    startTime: r.startTime,
+    endTime: r.endTime,
+    type: 'roster_change' as const,
+  }));
+}
+
 function parseTimeMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
