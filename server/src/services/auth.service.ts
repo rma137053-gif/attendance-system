@@ -39,7 +39,7 @@ export async function login(email: string, password: string) {
   }
 
   const token = jwt.sign(
-    { userId: user.id, role: user.role, storeId: user.storeId },
+    { userId: user.id, role: user.role, storeId: user.storeId, tokenVersion: user.tokenVersion },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn as any },
   );
@@ -65,7 +65,7 @@ export async function changePassword(userId: string, currentPassword: string, ne
   if (!valid) throw new BadRequestError('当前密码不正确');
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, tokenVersion: user.tokenVersion + 1 } });
 }
 
 export async function getMe(userId: string) {

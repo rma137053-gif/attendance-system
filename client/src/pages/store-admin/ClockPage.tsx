@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useCamera } from '../../hooks/useCamera';
 import dayjs from 'dayjs';
@@ -13,6 +14,8 @@ dayjs.extend(timezone);
 interface Employee {
   id: string;
   name: string;
+  storeId?: string;
+  crossStore?: boolean;
   startTime?: string | null;
   endTime?: string | null;
 }
@@ -21,6 +24,7 @@ type Step = 'select-employee' | 'enter-pin' | 'select-type' | 'camera' | 'confir
 
 export default function StoreAdminClock() {
   const { success: showSuccess, error: showError } = useToast();
+  const { user } = useAuth();
   const { videoRef, fileInputRef, isNative, streamReady, startCamera, stopCamera, capturePhoto, handleFileInputChange } = useCamera();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('select-employee');
@@ -196,8 +200,13 @@ export default function StoreAdminClock() {
                            hover:border-brand hover:bg-brand-light active:scale-[0.97]
                            transition-all duration-150 min-h-[88px]"
               >
-                <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center text-lg font-bold">
-                  {getInitials(emp.name)}
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center text-lg font-bold">
+                    {getInitials(emp.name)}
+                  </div>
+                  {emp.storeId && user?.storeId && emp.storeId !== user.storeId && (
+                    <span className="absolute -top-1 -right-1 text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full font-semibold">跨店</span>
+                  )}
                 </div>
                 <span className="font-semibold text-gray-800 text-sm leading-tight text-center">
                   {emp.name}

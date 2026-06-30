@@ -19,6 +19,7 @@ import wechatRoutes from './routes/wechat';
 import leaveRoutes from './routes/leaves';
 import weeklyRestRoutes from './routes/weekly-rest';
 import announcementRoutes from './routes/announcements';
+import storeRoutes from './routes/stores';
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use('/api/handover', handoverRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/weekly-rest', weeklyRestRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/stores', storeRoutes);
 // 企业微信回调需要 raw XML body（非 JSON）
 app.use('/api/wechat/callback', express.text({ type: 'text/xml' }));
 app.use('/api/wechat', wechatRoutes);

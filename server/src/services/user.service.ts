@@ -14,10 +14,15 @@ export async function listStores() {
 
 export async function listEmployeeRoster(storeId: string | null) {
   const where: any = { status: 'ACTIVE', role: 'EMPLOYEE' };
-  if (storeId) where.storeId = storeId;
+  if (storeId) {
+    where.OR = [
+      { storeId },
+      { crossStore: true },
+    ];
+  }
   const employees = await prisma.user.findMany({
     where,
-    select: { id: true, name: true, role: true },
+    select: { id: true, name: true, role: true, storeId: true, crossStore: true },
     orderBy: { name: 'asc' },
   });
 
@@ -51,7 +56,7 @@ export async function listEmployees(storeId: string | null, includeInactive = fa
   if (storeId) where.storeId = storeId;
   return prisma.user.findMany({
     where,
-    select: { id: true, email: true, name: true, role: true, status: true, pin: true, createdAt: true, storeId: true, wechatUserId: true, store: { select: { id: true, name: true } } },
+    select: { id: true, email: true, name: true, role: true, status: true, pin: true, crossStore: true, createdAt: true, storeId: true, wechatUserId: true, store: { select: { id: true, name: true } } },
     orderBy: { name: 'asc' },
   });
 }
@@ -104,7 +109,12 @@ export async function createEmployee(email: string, password: string, name: stri
 
 export async function verifyPin(userId: string, pin: string, storeId: string | null) {
   const where: any = { id: userId, role: 'EMPLOYEE', status: 'ACTIVE' };
-  if (storeId) where.storeId = storeId;
+  if (storeId) {
+    where.OR = [
+      { storeId },
+      { crossStore: true },
+    ];
+  }
 
   const user = await prisma.user.findFirst({ where, select: { id: true, pin: true, name: true } });
   if (!user) throw new NotFoundError('员工不存在');
@@ -116,7 +126,7 @@ export async function verifyPin(userId: string, pin: string, storeId: string | n
   return { id: user.id, name: user.name };
 }
 
-export async function updateEmployee(id: string, data: { name?: string; email?: string; pin?: string }, storeId: string | null) {
+export async function updateEmployee(id: string, data: { name?: string; email?: string; pin?: string; crossStore?: boolean }, storeId: string | null) {
   const where: any = { id };
   if (storeId) where.storeId = storeId;
   const user = await prisma.user.findFirst({ where });
@@ -134,6 +144,11 @@ export async function updateEmployee(id: string, data: { name?: string; email?: 
   // Allow clearing PIN by passing empty string
   const updateData: any = { ...data };
   if (data.pin === '') updateData.pin = null;
+
+  // If email changed, bump tokenVersion to invalidate existing sessions
+  if (data.email && data.email !== user.email) {
+    updateData.tokenVersion = user.tokenVersion + 1;
+  }
 
   return prisma.user.update({
     where: { id },
@@ -164,5 +179,6 @@ export async function resetPassword(id: string, newPassword: string, storeId: st
   if (!user) throw new NotFoundError('员工不存在');
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id }, data: { passwordHash } });
+  // Bump tokenVersion to invalidate all existing sessions for this user
+  await prisma.user.update({ where: { id }, data: { passwordHash, tokenVersion: user.tokenVersion + 1 } });
 }

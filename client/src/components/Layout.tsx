@@ -75,6 +75,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <NavLink to="/admin/audit-logs" label="操作日志" current={location.pathname} />
                   <NavLink to="/admin/leaves" label="请假管理" current={location.pathname} />
                   <NavLink to="/admin/announcements" label="公告管理" current={location.pathname} />
+                  <NavLink to="/admin/stores" label="门店管理" current={location.pathname} />
                 </>
               ) : isStoreAdmin ? (
                 <>

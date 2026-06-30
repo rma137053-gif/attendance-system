@@ -25,9 +25,11 @@ model User {
   name         String
   role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN | STORE_ADMIN
   status       String        @default("ACTIVE")   // ACTIVE | INACTIVE
+  crossStore   Boolean       @default(false)   // 是否允许跨店打卡
   pin          String?
   storeId      String?
   wechatUserId String?       // 企业微信用户ID，用于精准推送
+  tokenVersion Int           @default(0)    // 修改邮箱/密码时递增，使旧token失效
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   store        Store?        @relation(fields: [storeId], references: [id])

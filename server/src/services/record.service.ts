@@ -33,10 +33,10 @@ export async function createRecord(params: CreateRecordParams) {
     throw new BadRequestError('打卡必须拍照');
   }
 
-  // If a store-scoped user is clocking on behalf of someone, verify same store
+  // If a store-scoped user is clocking on behalf of someone, verify same store or crossStore
   if (requesterStoreId) {
     const targetUser = await prisma.user.findUnique({ where: { id: userId } });
-    if (!targetUser || targetUser.storeId !== requesterStoreId) {
+    if (!targetUser || (targetUser.storeId !== requesterStoreId && !targetUser.crossStore)) {
       throw new BadRequestError('只能为本店员工打卡');
     }
   }
@@ -262,11 +262,11 @@ interface CreateManualParams {
 export async function createManualRecord(params: CreateManualParams) {
   const { userId, type, timestamp, note, requesterStoreId } = params;
 
-  // Store-scoped admin can only create for their store
+  // Store-scoped admin can create for their store or crossStore employees
   if (requesterStoreId) {
     const targetUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!targetUser) throw new NotFoundError('用户不存在');
-    if (targetUser.storeId !== requesterStoreId) {
+    if (targetUser.storeId !== requesterStoreId && !targetUser.crossStore) {
       throw new BadRequestError('只能为本店员工补录');
     }
   }

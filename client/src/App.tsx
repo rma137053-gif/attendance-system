@@ -13,6 +13,7 @@ import Reports from './pages/admin/Reports';
 import AuditLog from './pages/admin/AuditLog';
 import LeaveManagement from './pages/admin/LeaveManagement';
 import Announcements from './pages/admin/Announcements';
+import StoreManagement from './pages/admin/StoreManagement';
 import LeaveRequest from './pages/employee/LeaveRequest';
 import RestDaySelector from './pages/employee/RestDaySelector';
 import StoreAdminDashboard from './pages/store-admin/Dashboard';
@@ -179,6 +180,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requiredRole={['ADMIN', 'STORE_ADMIN']}>
             <Announcements />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/stores"
+        element={
+          <ProtectedRoute requiredRole="ADMIN">
+            <StoreManagement />
           </ProtectedRoute>
         }
       />

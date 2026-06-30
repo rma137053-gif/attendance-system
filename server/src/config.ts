@@ -3,7 +3,7 @@ import path from 'path';
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '36500d', // ~100 years, effectively permanent
   uploadDir: path.resolve(process.env.UPLOAD_DIR || './uploads/photos'),
   storageType: (process.env.STORAGE_TYPE || 'local') as 'local' | 's3',
   s3: {
