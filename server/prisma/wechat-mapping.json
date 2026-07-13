@@ -1,0 +1,15 @@
+{
+  "永不过期的企业微信匹配": "此文件用于永久保存员工的企业微信匹配关系，不依赖数据库",
+  "employees": {
+    "刘永纪": "Yun",
+    "夏淑利": "XiaoXia",
+    "邬灵芝": "ShengRuXiaHua",
+    "牟思敏": "msm",
+    "刘静": "JianDanXingFu",
+    "王海云": "XinXiangShiCheng",
+    "田加美": "TianJiaMei",
+    "穆雪琴": "moon",
+    "董金艳": "dy",
+    "蒋滟缤": "QianMo"
+  }
+}

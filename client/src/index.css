@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand — refined blue */
+  --color-brand: #2563eb;
+  --color-brand-dark: #1d4ed8;
+  --color-brand-light: #dbeafe;
+
+  /* Clock-in — vivid green */
+  --color-clock-in: #16a34a;
+  --color-clock-in-light: #dcfce7;
+  --color-clock-in-border: #86efac;
+
+  /* Clock-out — warm orange */
+  --color-clock-out: #ea580c;
+  --color-clock-out-light: #fff7ed;
+  --color-clock-out-border: #fdba74;
+
+  /* Anomaly — amber */
+  --color-anomaly: #ca8a04;
+  --color-anomaly-light: #fef9c3;
+  --color-anomaly-border: #fde047;
+
+  /* Status */
+  --color-danger: #dc2626;
+  --color-danger-light: #fef2f2;
+
+  /* Surface */
+  --color-surface: #f8fafc;
+  --color-surface-card: #ffffff;
+
+  /* Typography — tablet-optimized scale */
+  --font-sans: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", system-ui, -apple-system, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
+
+  /* Radius — softer for tablet */
+  --radius-card: 1rem;
+  --radius-btn: 0.75rem;
+  --radius-input: 0.75rem;
+}
+
+/* Base — larger for tablet readability at arm's length */
+html {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--color-surface);
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Touch-friendly: all interactive elements min 48px */
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* Focus ring — visible for keyboard nav, subtle for touch */
+*:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Number input styling for PIN */
+input[inputmode="numeric"] {
+  letter-spacing: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Animate only opacity/transform for performance */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Pulse ring for camera capture button */
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  50%      { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s ease-in-out infinite;
+}

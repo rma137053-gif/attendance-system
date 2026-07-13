@@ -1,0 +1,208 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+  rosters     Roster[]
+  leaves      Leave[]        @relation("LeaveStore")
+  weeklyRests WeeklyRest[]
+  announcements Announcement[]
+  overtimeRecords OvertimeRecord[]
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String
+  role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN | STORE_ADMIN
+  status       String        @default("ACTIVE")   // ACTIVE | INACTIVE
+  crossStore   Boolean       @default(false)   // 是否允许跨店打卡
+  canSelectRest Boolean      @default(false)   // 是否可以使用选休功能（仅全天班员工）
+  overtimeRecords     OvertimeRecord[] @relation("OvertimeUser")
+  coveredOvertimeRecords OvertimeRecord[] @relation("OvertimeCoveredUser")
+  pin          String?
+  storeId      String?
+  wechatUserId String?       // 企业微信用户ID，用于精准推送
+  tokenVersion Int           @default(0)    // 修改邮箱/密码时递增，使旧token失效
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  store        Store?        @relation(fields: [storeId], references: [id])
+  clockRecords ClockRecord[]
+  auditLogs    AuditLog[]
+  rosters      Roster[]
+  handoverNotes HandoverNote[]
+  pushLogs     PushLog[]
+  leaves        Leave[]        @relation("LeaveUser")
+  approvedLeaves Leave[]       @relation("LeaveApprover")
+  weeklyRests    WeeklyRest[]
+  announcements  Announcement[]
+
+  @@index([wechatUserId])
+}
+
+model ClockRecord {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // CLOCK_IN | CLOCK_OUT
+  photoKey    String?
+  isAnomalous Boolean  @default(false)
+  rosterId    String?  // 关联排班记录
+  lateMinutes Int?     // 迟到分钟数
+  note        String?  // 自动备注
+  createdAt   DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roster Roster? @relation(fields: [rosterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, type, createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  details      String?
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Roster {
+  id        String   @id @default(uuid())
+  storeId   String
+  userId    String
+  shiftDate DateTime // 排班日期（北京00:00的UTC）
+  startTime    String   // "HH:mm" 北京时间，如 "08:00"
+  endTime      String   // "HH:mm" 北京时间，如 "13:30"
+  breakMinutes Int      @default(0) // 休息时间（分钟）
+  createdAt    DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store         Store          @relation(fields: [storeId], references: [id])
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockRecords  ClockRecord[]
+  handoverNotes HandoverNote[]
+  pushLogs      PushLog[]
+
+  @@unique([userId, shiftDate])
+  @@index([storeId, shiftDate])
+  @@index([userId])
+}
+
+model HandoverNote {
+  id        String   @id @default(uuid())
+  rosterId  String
+  authorId  String?
+  content   String
+  createdAt DateTime @default(now())
+
+  roster Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+  author User?  @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([rosterId])
+}
+
+model Leave {
+  id         String   @id @default(uuid())
+  userId     String
+  storeId    String
+  type       String   // ANNUAL | SICK | PERSONAL
+  startDate  DateTime // 开始日期（北京00:00 UTC）
+  endDate    DateTime // 结束日期（北京00:00 UTC）
+  reason     String?
+  status     String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  approverId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User  @relation("LeaveUser", fields: [userId], references: [id], onDelete: Cascade)
+  store    Store @relation("LeaveStore", fields: [storeId], references: [id])
+  approver User? @relation("LeaveApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([storeId, status])
+  @@index([startDate, endDate])
+}
+
+model WeeklyRest {
+  id        String   @id @default(uuid())
+  userId    String
+  storeId   String
+  restDate  DateTime
+  weekStart DateTime
+  createdBy String   @default("EMPLOYEE") // EMPLOYEE | ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([userId, weekStart])
+  @@index([storeId, weekStart])
+}
+
+model PushLog {
+  id        String   @id @default(uuid())
+  userId    String
+  rosterId  String?
+  type      String   // CLOCK_IN_REMINDER | CLOCK_IN_URGE | CLOCK_OUT_REMINDER
+  status    String   // SENT | FAILED
+  errorMsg  String?
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roster Roster? @relation(fields: [rosterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([rosterId])
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  type      String   @default("GENERAL")
+  storeId   String?
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  user  User   @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
+}
+
+model OvertimeRecord {
+  id            String   @id @default(uuid())
+  userId        String
+  storeId       String
+  date          DateTime   // 加班日期（Beijing 00:00 UTC）
+  startTime     String     // "HH:mm"
+  endTime       String     // "HH:mm"
+  hours         Float      @default(0) // 自动计算 (endTime - startTime) / 60
+  type          String     @default("VOLUNTARY") // VOLUNTARY | COVERAGE
+  coveredUserId String?    // 被顶替员工ID（COVERAGE类型时使用）
+  reason        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User  @relation("OvertimeUser", fields: [userId], references: [id], onDelete: Cascade)
+  store       Store @relation(fields: [storeId], references: [id])
+  coveredUser User? @relation("OvertimeCoveredUser", fields: [coveredUserId], references: [id])
+
+  @@index([storeId, date])
+  @@index([userId, date])
+}
