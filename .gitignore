@@ -1,8 +1,17 @@
 client/dist/
 server/node_modules/
 server/dist/
+server/prisma/*.db
+server/prisma/*.db-journal
+server/prisma/*.db-wal
+server/prisma/*.db-shm
 roster-client/dist/
 roster-client/node_modules/
+tag-server/node_modules/
+tag-server/dist/
+tag-server/prisma/*.db
+tag-client/node_modules/
+tag-client/dist/
 .DS_Store
 ._*
 
