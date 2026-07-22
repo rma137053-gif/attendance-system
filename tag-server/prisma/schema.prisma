@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./tag.db"
+}
+
+model TagUser {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         String   // ADMIN | ACCOUNTANT
+  createdAt    DateTime @default(now())
+}
+
+model TagTransaction {
+  id           String   @id @default(uuid())
+  type         String   // IN | OUT | LOSS
+  quantity     Int
+  employeeName String?  // 领用员工姓名（OUT类型时填写）
+  note         String?
+  createdBy    String   // 操作人 username
+  recordDate   DateTime? // 记录日期（可用于每日使用）
+  createdAt    DateTime @default(now())
+}

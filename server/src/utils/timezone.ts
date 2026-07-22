@@ -34,12 +34,12 @@ export function beijingDayEnd(d: dayjs.Dayjs): Date {
 
 /** Get start of week (Monday 00:00:00) in Beijing time */
 export function beijingWeekStart(d: dayjs.Dayjs): Date {
-  return d.startOf('week').utc().toDate();
+  return d.startOf('isoWeek').utc().toDate();
 }
 
 /** Get end of week (Sunday 23:59:59.999) in Beijing time */
 export function beijingWeekEnd(d: dayjs.Dayjs): Date {
-  return d.endOf('week').utc().toDate();
+  return d.endOf('isoWeek').utc().toDate();
 }
 
 /** Get start of month in Beijing time */

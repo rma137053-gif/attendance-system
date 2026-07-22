@@ -1,12 +1,13 @@
 import axios from 'axios';
 
-// Detect if running inside Capacitor (native app) vs browser
-const isCapacitor = typeof (window as any).Capacitor !== 'undefined';
+function getToken(): string | null {
+  const ls = localStorage.getItem('token');
+  if (ls) return ls;
+  const m = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+  return m ? m[1] : null;
+}
 
-// In native APK, use absolute server URL; in browser, use relative path
-const baseURL = isCapacitor
-  ? 'http://192.168.0.118:3000/api' // TODO: change to your server IP
-  : '/api';
+const baseURL = '/api';
 
 const api = axios.create({
   baseURL,
@@ -14,7 +15,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

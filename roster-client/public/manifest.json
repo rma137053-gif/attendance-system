@@ -1,0 +1,22 @@
+{
+  "name": "排班助手",
+  "short_name": "排班助手",
+  "start_url": "/roster/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fdf8f0",
+  "theme_color": "#d4a853",
+  "description": "考勤排班管理助手",
+  "icons": [
+    {
+      "src": "/roster/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/roster/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

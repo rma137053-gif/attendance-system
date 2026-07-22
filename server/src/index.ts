@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config';
 import { ensureUploadDir } from './services/storage.service';
+import { startScheduler } from './jobs/scheduler';
 import { AppError } from './utils/errors';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -11,6 +13,14 @@ import photoRoutes from './routes/photos';
 import reportRoutes from './routes/reports';
 import statsRoutes from './routes/stats';
 import auditLogRoutes from './routes/auditLogs';
+import rosterRoutes from './routes/roster';
+import handoverRoutes from './routes/handover';
+import wechatRoutes from './routes/wechat';
+import leaveRoutes from './routes/leaves';
+import weeklyRestRoutes from './routes/weekly-rest';
+import announcementRoutes from './routes/announcements';
+import storeRoutes from './routes/stores';
+import overtimeRoutes from './routes/overtime';
 
 const app = express();
 
@@ -36,6 +46,16 @@ app.use('/api/photos', photoRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/roster', rosterRoutes);
+app.use('/api/handover', handoverRoutes);
+app.use('/api/leaves', leaveRoutes);
+app.use('/api/weekly-rest', weeklyRestRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/stores', storeRoutes);
+app.use('/api/overtime', overtimeRoutes);
+// 企业微信回调需要 raw XML body（非 JSON）
+app.use('/api/wechat/callback', express.text({ type: 'text/xml' }));
+app.use('/api/wechat', wechatRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -80,6 +100,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 app.listen(config.port, () => {
   console.log(`Server running on http://localhost:${config.port}`);
   console.log(`Photo storage: ${config.storageType} (${config.uploadDir})`);
+  startScheduler();
 });
 
 export default app;

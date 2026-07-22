@@ -1,0 +1,9 @@
+{
+  "appId": "com.attendance.app",
+  "appName": "考勤管理",
+  "webDir": "www",
+  "server": {
+    "url": "https://ruilun.top",
+    "cleartext": false
+  }
+}

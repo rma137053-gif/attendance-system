@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import dayjs from 'dayjs';
 import { authMiddleware } from '../middleware/auth';
 import { requireAdmin } from '../middleware/requireAdmin';
 import * as reportService from '../services/report.service';
@@ -26,9 +27,21 @@ router.get('/weekly', async (req: Request, res: Response, next: NextFunction) =>
 
 router.get('/monthly', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const rows = await reportService.getMonthlyReport(getStoreId(req), req.query.month as string | undefined);
-    const summary = reportService.generateSummary(rows);
-    res.json({ rows, summary });
+    const result = await reportService.getMonthlyReport(getStoreId(req), req.query.month as string | undefined);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 员工每日明细（用于工时统计展开查看）
+router.get('/user-daily', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.query.userId as string;
+    const month = (req.query.month as string) || dayjs().tz('Asia/Shanghai').format('YYYY-MM');
+    if (!userId) { res.status(400).json({ error: 'userId 不能为空' }); return; }
+    const detail = await reportService.getUserDailyDetail(userId, month);
+    res.json(detail);
   } catch (err) {
     next(err);
   }
@@ -55,7 +68,8 @@ router.get('/export', async (req: Request, res: Response, next: NextFunction) =>
       rows = await reportService.getWeeklyReport(storeId, req.query.date as string | undefined);
       filename = `周报_${rows[0]?.weekStart?.slice(0, 10) || 'export'}.csv`;
     } else if (type === 'monthly') {
-      rows = await reportService.getMonthlyReport(storeId, req.query.month as string | undefined);
+      const res = await reportService.getMonthlyReport(storeId, req.query.month as string | undefined);
+      rows = res.rows;
       filename = `月报_${rows[0]?.month || 'export'}.csv`;
     } else if (type === 'yearly') {
       rows = await reportService.getYearlyReport(storeId, req.query.year as string | undefined);

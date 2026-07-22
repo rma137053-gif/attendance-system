@@ -14,6 +14,7 @@ interface User {
   name: string;
   role: string;
   status: string;
+  crossStore?: boolean;
   pin?: string | null;
   createdAt: string;
   storeId?: string | null;
@@ -26,8 +27,9 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', password: '', storeId: '', pin: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', storeId: '', pin: '', crossStore: false });
   const [error, setError] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const { success } = useToast();
 
   // Confirm dialog state
@@ -44,8 +46,9 @@ export default function UserManagement() {
 
   const fetchData = async () => {
     try {
+      const params = showInactive ? { includeInactive: 'true' } : {};
       const [usersRes, storesRes] = await Promise.all([
-        api.get('/users'),
+        api.get('/users', { params }),
         api.get('/users/stores'),
       ]);
       setUsers(usersRes.data);
@@ -59,14 +62,14 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [showInactive]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       if (editUser) {
-        await api.put(`/users/${editUser.id}`, { name: form.name, email: form.email, pin: form.pin });
+        await api.put(`/users/${editUser.id}`, { name: form.name, email: form.email, pin: form.pin, crossStore: form.crossStore });
         success('员工信息已更新');
       } else {
         await api.post('/users', form);
@@ -74,7 +77,7 @@ export default function UserManagement() {
       }
       setShowForm(false);
       setEditUser(null);
-      setForm({ name: '', email: '', password: '', storeId: '', pin: '' });
+      setForm({ name: '', email: '', password: '', storeId: '', pin: '', crossStore: false });
       fetchData();
     } catch (err: any) {
       setError(err.response?.data?.error || '操作失败');
@@ -83,10 +86,13 @@ export default function UserManagement() {
 
   const handleToggleStatus = (user: User) => {
     const newStatus = user.status === 'ACTIVE' ? '停用' : '启用';
+    const isDeleting = user.status === 'ACTIVE';
     setConfirm({
       open: true,
       title: `${newStatus}员工`,
-      message: `确定要${newStatus}员工「${user.name}」吗？`,
+      message: isDeleting
+        ? `确定要停用员工「${user.name}」吗？停用后将被移除排班、无法打卡，但历史数据保留。`
+        : `确定要启用员工「${user.name}」吗？`,
       onConfirm: async () => {
         try {
           await api.patch(`/users/${user.id}/status`);
@@ -115,7 +121,7 @@ export default function UserManagement() {
 
   const startEdit = (user: User) => {
     setEditUser(user);
-    setForm({ name: user.name, email: user.email, password: '', storeId: user.storeId || '', pin: user.pin || '' });
+    setForm({ name: user.name, email: user.email, password: '', storeId: user.storeId || '', pin: user.pin || '', crossStore: user.crossStore || false });
     setShowForm(true);
   };
 
@@ -125,16 +131,27 @@ export default function UserManagement() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-gray-800">员工管理</h1>
-        <button
-          onClick={() => {
-            setEditUser(null);
-            setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '', pin: '' });
-            setShowForm(true);
-          }}
-          className="bg-brand text-white px-4 py-2 rounded-lg hover:bg-brand-dark transition-colors text-sm"
-        >
-          + 添加员工
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-brand focus:ring-brand"
+            />
+            显示停用员工
+          </label>
+          <button
+            onClick={() => {
+              setEditUser(null);
+              setForm({ name: '', email: '', password: '', storeId: stores[0]?.id || '', pin: '', crossStore: false });
+              setShowForm(true);
+            }}
+            className="bg-brand text-white px-4 py-2 rounded-lg hover:bg-brand-dark transition-colors text-sm"
+          >
+            + 添加员工
+          </button>
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}
@@ -205,6 +222,20 @@ export default function UserManagement() {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand focus:border-brand outline-none text-sm bg-white"
               />
             </div>
+            {editUser && (
+              <div className="flex items-center gap-3 py-1">
+                <input
+                  type="checkbox"
+                  id="crossStore"
+                  checked={form.crossStore}
+                  onChange={(e) => setForm({ ...form, crossStore: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent"
+                />
+                <label htmlFor="crossStore" className="text-sm text-gray-700 cursor-pointer select-none">
+                  允许跨店打卡 — 开启后该员工可在所有门店被打卡
+                </label>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -231,6 +262,7 @@ export default function UserManagement() {
               <th className="text-left px-4 py-3 font-semibold text-gray-600">姓名</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">邮箱</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">门店</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600">跨店</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">PIN</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-600">角色</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-600">状态</th>
@@ -243,6 +275,13 @@ export default function UserManagement() {
                 <td className="px-4 py-3.5 text-gray-800 font-medium">{u.name}</td>
                 <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell">{u.email}</td>
                 <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell">{u.store?.name || '-'}</td>
+                <td className="px-4 py-3.5">
+                  {u.role === 'EMPLOYEE' && u.crossStore ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-accent-light text-accent-dark">跨店</span>
+                  ) : u.role === 'EMPLOYEE' ? (
+                    <span className="text-xs text-gray-300">-</span>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3.5 text-gray-500 hidden sm:table-cell font-mono">{u.pin || '-'}</td>
                 <td className="px-4 py-3.5">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${

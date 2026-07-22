@@ -9,17 +9,40 @@ export async function getTodayStats(storeId: string | null) {
   const dayStart = beijingDayStart(today);
   const dayEnd = beijingDayEnd(today);
 
-  const userWhere: any = { status: 'ACTIVE' };
-  if (storeId) userWhere.storeId = storeId;
+  // 只查询今日有排班的员工
+  const rosterWhere: any = { shiftDate: { gte: dayStart, lte: dayEnd } };
+  if (storeId) rosterWhere.storeId = storeId;
 
-  const [allUsers, todayRecords] = await Promise.all([
+  const todayRosters = await prisma.roster.findMany({
+    where: rosterWhere,
+    select: { userId: true },
+  });
+  const rosteredUserIds = [...new Set(todayRosters.map((r) => r.userId))];
+
+  // 今日无人排班
+  if (rosteredUserIds.length === 0) {
+    return {
+      date: today.format('YYYY-MM-DD'),
+      totalEmployees: 0,
+      clockedInCount: 0,
+      notClockedInCount: 0,
+      clockedOutCount: 0,
+      missingClockOutCount: 0,
+      clockedIn: [],
+      notClockedIn: [],
+      missingClockOut: [],
+    };
+  }
+
+  const [rosteredUsers, todayRecords] = await Promise.all([
     prisma.user.findMany({
-      where: userWhere,
+      where: { id: { in: rosteredUserIds }, status: 'ACTIVE' },
       select: { id: true, name: true, email: true, store: { select: { id: true, name: true } } },
       orderBy: { name: 'asc' },
     }),
     prisma.clockRecord.findMany({
       where: {
+        userId: { in: rosteredUserIds },
         createdAt: { gte: dayStart, lte: dayEnd },
       },
       select: { userId: true, type: true, createdAt: true },
@@ -42,7 +65,7 @@ export async function getTodayStats(storeId: string | null) {
   const notClockedIn: { id: string; name: string; email: string; storeName: string }[] = [];
   const missingClockOut: { id: string; name: string; email: string; storeName: string }[] = [];
 
-  for (const u of allUsers) {
+  for (const u of rosteredUsers) {
     const storeName = (u as any).store?.name ?? '';
     const entry = userRecordMap.get(u.id);
     if (!entry || entry.clockIns.length === 0) {
@@ -66,7 +89,7 @@ export async function getTodayStats(storeId: string | null) {
 
   return {
     date: today.format('YYYY-MM-DD'),
-    totalEmployees: allUsers.length,
+    totalEmployees: rosteredUsers.length,
     clockedInCount: clockedIn.length,
     notClockedInCount: notClockedIn.length,
     clockedOutCount: clockedIn.filter((c) => c.lastOut).length,

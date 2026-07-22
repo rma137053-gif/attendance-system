@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useCamera } from '../../hooks/useCamera';
 import dayjs from 'dayjs';
@@ -13,13 +14,18 @@ dayjs.extend(timezone);
 interface Employee {
   id: string;
   name: string;
+  storeId?: string;
+  crossStore?: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
 }
 
 type Step = 'select-employee' | 'enter-pin' | 'select-type' | 'camera' | 'confirm' | 'success';
 
 export default function StoreAdminClock() {
   const { success: showSuccess, error: showError } = useToast();
-  const { videoRef, isNative, streamReady, startCamera, stopCamera, capturePhoto } = useCamera();
+  const { user } = useAuth();
+  const { videoRef, fileInputRef, isNative, streamReady, startCamera, stopCamera, capturePhoto, handleFileInputChange } = useCamera();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('select-employee');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -105,11 +111,20 @@ export default function StoreAdminClock() {
     if (!photoFile || !selectedEmployee) return;
     setSubmitting(true);
     try {
-      const form = new FormData();
-      form.append('photo', photoFile);
-      form.append('userId', selectedEmployee.id);
+      // Convert photo to base64 for reliable mobile upload (avoids multipart issues through nginx)
+      const photoBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('读取照片失败'));
+        reader.readAsDataURL(photoFile);
+      });
+
       const endpoint = clockType === 'CLOCK_IN' ? '/records/clock-in' : '/records/clock-out';
-      const res = await api.post(endpoint, form);
+      const res = await api.post(endpoint, {
+        photoBase64,
+        photoName: photoFile.name || 'photo.jpg',
+        userId: selectedEmployee.id,
+      });
       if (res.data.duplicate) {
         showSuccess(`${selectedEmployee.name} 今日已${clockType === 'CLOCK_IN' ? '上班打卡' : '下班签退'}，无需重复打卡`);
       } else if (res.data.isAnomalous) {
@@ -185,12 +200,22 @@ export default function StoreAdminClock() {
                            hover:border-brand hover:bg-brand-light active:scale-[0.97]
                            transition-all duration-150 min-h-[88px]"
               >
-                <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center text-lg font-bold">
-                  {getInitials(emp.name)}
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center text-lg font-bold">
+                    {getInitials(emp.name)}
+                  </div>
+                  {emp.storeId && user?.storeId && emp.storeId !== user.storeId && (
+                    <span className="absolute -top-1 -right-1 text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full font-semibold">跨店</span>
+                  )}
                 </div>
                 <span className="font-semibold text-gray-800 text-sm leading-tight text-center">
                   {emp.name}
                 </span>
+                {emp.startTime && emp.endTime ? (
+                  <span className="text-xs text-gray-400">{emp.startTime}-{emp.endTime}</span>
+                ) : (
+                  <span className="text-xs text-gray-300">今日未排班</span>
+                )}
               </button>
             ))}
           </div>
@@ -294,6 +319,15 @@ export default function StoreAdminClock() {
       {/* === STEP 4: Camera === */}
       {step === 'camera' && (
         <div className="animate-fade-in max-w-lg mx-auto">
+          {/* Hidden file input for mobile capture — must be in DOM for click() to work on mobile browsers */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileInputChange}
+          />
           <div className="text-center mb-3">
             <span className="inline-block px-4 py-1.5 rounded-full text-sm font-bold
               {clockType === 'CLOCK_IN' ? 'bg-clock-in-light text-clock-in' : 'bg-clock-out-light text-clock-out'}">
