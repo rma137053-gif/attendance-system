@@ -8,14 +8,25 @@ import dayjs from 'dayjs';
 
 const prisma = new PrismaClient();
 
-const CLOCK_IN_WINDOW_START = 5;  // 05:00 Beijing
-const CLOCK_IN_WINDOW_END = 23;   // 23:00 Beijing (exclusive)
-const CLOCK_OUT_WINDOW_START = 12; // 12:00 Beijing
-const CLOCK_OUT_WINDOW_END = 23;   // 23:59 Beijing
+const CLOCK_IN_WINDOW_START = 5;
+const CLOCK_IN_WINDOW_END = 23;
+const CLOCK_OUT_WINDOW_START = 12;
+const CLOCK_OUT_WINDOW_END = 23;
+const OVERTIME_THRESHOLD_MIN = 5;   // 超过排班时间5分钟算加班
+const EARLY_THRESHOLD_MIN = 1;       // 早退1分钟即标记
 
 function isWithinWindow(type: 'CLOCK_IN' | 'CLOCK_OUT', hour: number): boolean {
   if (type === 'CLOCK_IN') return hour >= CLOCK_IN_WINDOW_START && hour < CLOCK_IN_WINDOW_END;
   return hour >= CLOCK_OUT_WINDOW_START && hour <= CLOCK_OUT_WINDOW_END;
+}
+
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes <= 0) return '';
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}分钟`;
+  if (m === 0) return `${h}小时`;
+  return `${h}小时${m}分钟`;
 }
 
 interface CreateRecordParams {
@@ -33,116 +44,135 @@ export async function createRecord(params: CreateRecordParams) {
     throw new BadRequestError('打卡必须拍照');
   }
 
-  // If a store-scoped user is clocking on behalf of someone, verify same store
+  // Verify same store or crossStore
   if (requesterStoreId) {
     const targetUser = await prisma.user.findUnique({ where: { id: userId } });
-    if (!targetUser || targetUser.storeId !== requesterStoreId) {
+    if (!targetUser || (targetUser.storeId !== requesterStoreId && !targetUser.crossStore)) {
       throw new BadRequestError('只能为本店员工打卡');
     }
   }
 
-  // Look up today's roster for roster linkage
+  // Look up today's roster
   const todayStart = beijingDayStart(nowBeijing());
   const todayEnd = beijingDayEnd(nowBeijing());
   const roster = await prisma.roster.findFirst({
-    where: {
-      userId,
-      shiftDate: { gte: todayStart, lte: todayEnd },
-    },
+    where: { userId, shiftDate: { gte: todayStart, lte: todayEnd } },
   });
 
   let rosterId: string | null = null;
   let lateMinutes: number | null = null;
   let note: string | null = null;
 
-  // Check if user is on approved leave today
+  // Check if on approved leave today
   let onLeave = false;
   if (roster) {
     const leaveDates = await getApprovedLeaveDates(userId, todayStart, todayEnd);
     onLeave = leaveDates.has(nowBeijing().format('YYYY-MM-DD'));
   }
 
-  // Check if within valid time window
   const beijingHour = nowBeijing().hour();
+  let isAnomalous = false;
 
-  // With roster: use roster-based anomaly detection instead of time window
-  let isAnomalous: boolean;
+  // Count today's existing records to detect midday breaks
+  const todayInCount = await prisma.clockRecord.count({
+    where: { userId, type: 'CLOCK_IN', createdAt: { gte: todayStart, lte: todayEnd } },
+  });
+  const todayOutCount = await prisma.clockRecord.count({
+    where: { userId, type: 'CLOCK_OUT', createdAt: { gte: todayStart, lte: todayEnd } },
+  });
+
   if (onLeave) {
-    // 已审批请假：不标记异常
     isAnomalous = false;
     note = `${roster!.startTime}-${roster!.endTime}, 已请假`;
   } else if (roster && type === 'CLOCK_IN') {
     const now = nowBeijing();
-    lateMinutes = calcLateMinutes(roster.startTime, now);
-    isAnomalous = lateMinutes > 0;
-    note = isAnomalous
-      ? `${roster.startTime}-${roster.endTime}, 迟到 ${lateMinutes} 分钟`
-      : `${roster.startTime}-${roster.endTime}, 准时`;
+    if (todayInCount >= 1 && roster && roster.breakMinutes > 0) {
+      // Returning from midday break (only for full-day employees)
+      isAnomalous = false;
+      note = `${roster.startTime}-${roster.endTime}, 午休返回`;
+    } else if (todayInCount >= 1) {
+      // Additional clock-in (not first today, not full-day) — could be coverage/overtime session
+      isAnomalous = false;
+      note = `${roster.startTime}-${roster.endTime}, 加班时段`;
+    } else {
+      lateMinutes = calcLateMinutes(roster.startTime, now);
+      isAnomalous = lateMinutes > 0;
+      note = isAnomalous
+        ? `${roster.startTime}-${roster.endTime}, 迟到 ${lateMinutes} 分钟`
+        : `${roster.startTime}-${roster.endTime}, 准时`;
+    }
   } else if (roster && type === 'CLOCK_OUT') {
     const now = nowBeijing();
-    const end = parseTimeToBeijing(now, roster.endTime);
-    if (now.isBefore(end)) {
-      const earlyMinutes = end.diff(now, 'minute');
-      isAnomalous = true;
-      note = `提前 ${earlyMinutes} 分钟下班`;
-    } else {
+    const isFullDay = roster.breakMinutes > 0;
+    let effectiveEndTime = roster.endTime;
+
+    // Check for COVERAGE overtime records that extend the effective endTime
+    if (!isFullDay) {
+      const coverageOts = await prisma.overtimeRecord.findMany({
+        where: { userId, date: { gte: todayStart, lte: todayEnd }, type: 'COVERAGE' },
+        select: { endTime: true },
+      });
+      for (const ot of coverageOts) {
+        if (ot.endTime > effectiveEndTime) effectiveEndTime = ot.endTime;
+      }
+    }
+
+    const end = parseTimeToBeijing(now, effectiveEndTime);
+    const hoursBeforeEnd = end.diff(now, 'hour', true);
+
+    // 午休检测仅限全天班员工
+    if (isFullDay && hoursBeforeEnd > 4) {
       isAnomalous = false;
-      note = `${roster.startTime}-${roster.endTime}, 准时下班`;
+      note = `${roster.startTime}-${roster.endTime}, 午休`;
+    } else {
+      const diffMinutes = now.diff(end, 'minute');
+      if (diffMinutes > OVERTIME_THRESHOLD_MIN) {
+        isAnomalous = false;
+        note = `${roster.startTime}-${effectiveEndTime}, 准时下班，加班${formatDuration(diffMinutes)}`;
+        // Auto-create voluntary overtime record
+        const overtimeHours = Math.round((diffMinutes / 60) * 10) / 10;
+        const storeForOT = await prisma.roster.findUnique({ where: { id: roster.id }, select: { storeId: true } });
+        if (storeForOT) {
+          prisma.overtimeRecord.create({
+            data: {
+              userId, storeId: storeForOT.storeId,
+              date: roster.shiftDate,
+              startTime: effectiveEndTime,
+              endTime: now.format('HH:mm'),
+              hours: overtimeHours,
+              type: 'VOLUNTARY',
+            },
+          }).catch(() => {});
+        }
+      } else if (diffMinutes <= -EARLY_THRESHOLD_MIN) {
+        // 额外检查：实际工作时长是否严重不足才算早退
+        // 防止排班被修改后产生误判（如夏淑利/邬灵芝案例）
+        const scheduledMinutes = parseTimeToBeijing(now, roster.endTime).diff(
+          parseTimeToBeijing(now, roster.startTime), 'minute'
+        );
+        const workedMinutes = now.diff(
+          parseTimeToBeijing(now, roster.startTime), 'minute'
+        );
+        // 工作时间超过排班的80%不算早退（允许合理时间差）
+        if (workedMinutes < scheduledMinutes * 0.8 && diffMinutes <= -10) {
+          isAnomalous = true;
+          note = `提前 ${formatDuration(Math.abs(diffMinutes))} 下班`;
+        } else {
+          isAnomalous = false;
+          note = `${roster.startTime}-${roster.endTime}, 准时下班`;
+        }
+      } else {
+        isAnomalous = false;
+        note = `${roster.startTime}-${effectiveEndTime}, 准时下班`;
+      }
     }
   } else {
-    // No roster: fall back to existing time window check
+    // No roster: fall back to time window check
     isAnomalous = !isWithinWindow(type, beijingHour);
   }
 
   if (roster) {
     rosterId = roster.id;
-  }
-
-  // Dedup: same type same day
-  const existingSameType = await prisma.clockRecord.findFirst({
-    where: {
-      userId,
-      type,
-      createdAt: { gte: todayStart, lte: todayEnd },
-    },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  if (existingSameType && type === 'CLOCK_IN') {
-    // Keep first clock-in — return existing, fetch user for response
-    const clockUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } });
-    return {
-      ...existingSameType,
-      createdAt: formatBeijing(existingSameType.createdAt),
-      user: clockUser ?? { id: userId, name: '', email: '' },
-      rosterId: existingSameType.rosterId,
-      lateMinutes: existingSameType.lateMinutes,
-      note: existingSameType.note,
-      duplicate: true,
-    };
-  }
-
-  if (existingSameType && type === 'CLOCK_OUT') {
-    // Keep last clock-out — save new photo first, then replace old record atomically
-    const photoKey = await savePhoto(photoBuffer, photoOriginalName || 'photo.jpg');
-    if (existingSameType.photoKey) {
-      await deletePhoto(existingSameType.photoKey).catch(() => {});
-    }
-
-    const [record] = await prisma.$transaction([
-      prisma.clockRecord.create({
-        data: { userId, type, photoKey, isAnomalous, rosterId, lateMinutes, note },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-        },
-      }),
-      prisma.clockRecord.delete({ where: { id: existingSameType.id } }),
-    ]);
-
-    return {
-      ...record,
-      createdAt: formatBeijing(record.createdAt),
-    };
   }
 
   const photoKey = await savePhoto(photoBuffer, photoOriginalName || 'photo.jpg');
@@ -234,13 +264,11 @@ export async function getPhotoForRecord(recordId: string, requesterUserId: strin
 
   if (!record) throw new NotFoundError('打卡记录不存在');
 
-  // Employees can only view their own photos; STORE_ADMIN can view their store's employees
   const isStoreAdminOfRecord = requesterRole === 'STORE_ADMIN' && requesterStoreId === record.user.storeId;
   if (requesterRole !== 'ADMIN' && record.userId !== requesterUserId && !isStoreAdminOfRecord) {
     throw new NotFoundError('打卡记录不存在');
   }
 
-  // Store-scoped admin can only see their store's photos
   if (requesterStoreId && record.user.storeId !== requesterStoreId) {
     throw new NotFoundError('打卡记录不存在');
   }
@@ -262,23 +290,20 @@ interface CreateManualParams {
 export async function createManualRecord(params: CreateManualParams) {
   const { userId, type, timestamp, note, requesterStoreId } = params;
 
-  // Store-scoped admin can only create for their store
   if (requesterStoreId) {
     const targetUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!targetUser) throw new NotFoundError('用户不存在');
-    if (targetUser.storeId !== requesterStoreId) {
+    if (targetUser.storeId !== requesterStoreId && !targetUser.crossStore) {
       throw new BadRequestError('只能为本店员工补录');
     }
   }
 
-  // Parse the admin-specified Beijing time
   const beijingMoment = dayjs.tz(timestamp, 'Asia/Shanghai');
   if (!beijingMoment.isValid()) {
     throw new BadRequestError('时间格式无效');
   }
   const recordTime = beijingMoment.utc().toDate();
 
-  // Look up roster for the given date
   const dayStart = beijingDayStart(beijingMoment);
   const dayEnd = beijingDayEnd(beijingMoment);
   const roster = await prisma.roster.findFirst({
@@ -345,7 +370,6 @@ export async function updateRecord(params: UpdateRecordParams) {
     }
     updateData.createdAt = beijingMoment.utc().toDate();
 
-    // Re-link roster based on new date
     const dayStart = beijingDayStart(beijingMoment);
     const dayEnd = beijingDayEnd(beijingMoment);
     const roster = await prisma.roster.findFirst({
@@ -373,6 +397,28 @@ export async function updateRecord(params: UpdateRecordParams) {
   };
 }
 
+export async function deleteRecord(recordId: string, requesterStoreId: string | null) {
+  const record = await prisma.clockRecord.findUnique({
+    where: { id: recordId },
+    include: { user: { select: { id: true, name: true, storeId: true } } },
+  });
+
+  if (!record) throw new NotFoundError('打卡记录不存在');
+
+  if (requesterStoreId && record.user.storeId !== requesterStoreId) {
+    throw new NotFoundError('打卡记录不存在');
+  }
+
+  // 删除关联的照片文件
+  if (record.photoKey) {
+    await deletePhoto(record.photoKey);
+  }
+
+  await prisma.clockRecord.delete({ where: { id: recordId } });
+
+  return { id: recordId, userName: record.user.name };
+}
+
 export async function toggleAnomaly(recordId: string, requesterStoreId: string | null) {
   const record = await prisma.clockRecord.findUnique({
     where: { id: recordId },
@@ -381,7 +427,6 @@ export async function toggleAnomaly(recordId: string, requesterStoreId: string |
 
   if (!record) throw new NotFoundError('打卡记录不存在');
 
-  // Global admin can toggle any; store-scoped admin can only toggle their store
   if (requesterStoreId && record.user.storeId !== requesterStoreId) {
     throw new NotFoundError('打卡记录不存在');
   }

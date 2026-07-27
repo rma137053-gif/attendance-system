@@ -266,33 +266,31 @@ export async function queryRoster(
     }
 
     if (leaveDateFilter.gte && leaveDateFilter.lte) {
-      const allUserIds = rosterUserIds.length > 0
-        ? rosterUserIds
-        : (userId ? [userId] : []);
+      // Query ALL approved leaves in date range (not limited to rostered users)
+      const leaveWhere: any = {
+        status: 'APPROVED',
+        startDate: { lte: leaveDateFilter.lte },
+        endDate: { gte: leaveDateFilter.gte },
+      };
+      // EMPLOYEE can only see own leaves
+      if (requesterRole === 'EMPLOYEE') {
+        leaveWhere.userId = requesterUserId;
+      }
+      const approvedLeaves = await prisma.leave.findMany({
+        where: leaveWhere,
+        select: { userId: true, startDate: true, endDate: true, type: true },
+      });
 
-      if (allUserIds.length > 0 || requesterRole === 'EMPLOYEE' && requesterUserId) {
-        const leaveQueryIds = allUserIds.length > 0 ? allUserIds : [requesterUserId!];
-        const approvedLeaves = await prisma.leave.findMany({
-          where: {
-            userId: { in: leaveQueryIds },
-            status: 'APPROVED',
-            startDate: { lte: leaveDateFilter.lte },
-            endDate: { gte: leaveDateFilter.gte },
-          },
-          select: { userId: true, startDate: true, endDate: true, type: true },
-        });
-
-        for (const l of approvedLeaves) {
-          let d = dayjs.utc(l.startDate).tz('Asia/Shanghai');
-          const end = dayjs.utc(l.endDate).tz('Asia/Shanghai');
-          while (d.isBefore(end) || d.isSame(end, 'day')) {
-            const dateStr = d.format('YYYY-MM-DD');
-            const key = `${l.userId}_${dateStr}`;
-            if (!leaveMap.has(key)) {
-              leaveMap.set(key, l.type);
-            }
-            d = d.add(1, 'day');
+      for (const l of approvedLeaves) {
+        let d = dayjs.utc(l.startDate).tz('Asia/Shanghai');
+        const end = dayjs.utc(l.endDate).tz('Asia/Shanghai');
+        while (d.isBefore(end) || d.isSame(end, 'day')) {
+          const dateStr = d.format('YYYY-MM-DD');
+          const key = `${l.userId}_${dateStr}`;
+          if (!leaveMap.has(key)) {
+            leaveMap.set(key, l.type);
           }
+          d = d.add(1, 'day');
         }
       }
     }
@@ -352,14 +350,30 @@ export async function getTodayRoster(userId: string, requesterStoreId: string | 
     };
     if (requesterStoreId) where.storeId = requesterStoreId;
 
-    const allRosters = await prisma.roster.findMany({
-      where,
-      include: {
-        user: { select: { id: true, name: true } },
-        store: { select: { id: true, name: true } },
-      },
-      orderBy: [{ storeId: 'asc' }, { startTime: 'asc' }],
-    });
+    const [allRosters, todayLeaves] = await Promise.all([
+      prisma.roster.findMany({
+        where,
+        include: {
+          user: { select: { id: true, name: true } },
+          store: { select: { id: true, name: true } },
+        },
+        orderBy: [{ storeId: 'asc' }, { startTime: 'asc' }],
+      }),
+      prisma.leave.findMany({
+        where: {
+          status: 'APPROVED',
+          startDate: { lte: dayEnd },
+          endDate: { gte: dayStart },
+        },
+        select: { userId: true, type: true },
+      }),
+    ]);
+
+    // 构建请假员工集合
+    const leaveMap: Record<string, string> = {};
+    for (const l of todayLeaves) {
+      leaveMap[l.userId] = l.type === 'ANNUAL' ? '年假' : l.type === 'SICK' ? '病假' : '事假';
+    }
 
     return {
       myShift: null,
@@ -369,6 +383,7 @@ export async function getTodayRoster(userId: string, requesterStoreId: string | 
         endTime: r.endTime,
         user: r.user,
         store: r.store,
+        onLeave: leaveMap[r.user.id] || null,
       })),
     };
   }

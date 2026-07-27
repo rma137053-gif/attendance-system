@@ -187,20 +187,22 @@ export default function TodayPage() {
                 <span className="text-xs text-gray-400 ml-auto">{items.length} 人</span>
               </div>
               <div className="p-4 space-y-2">
-                {items.map((r) => {
-                  const status = getStatusLabel(r.startTime, r.endTime);
-                  const colors = getShiftColor(r.startTime);
-                  const [sh, sm] = r.startTime.split(':').map(Number);
-                  const [eh, em] = r.endTime.split(':').map(Number);
-                  const hours = (eh * 60 + em - sh * 60 - sm) / 60;
+                {items.map((r: any) => {
+                  const status = r.onLeave
+                    ? { text: `已请假(${r.onLeave})`, color: 'bg-amber-100 text-amber-700' }
+                    : getStatusLabel(r.startTime, r.endTime);
+                  const colors = r.onLeave ? { dot: 'bg-amber-400' } : getShiftColor(r.startTime);
+                  const [sh, sm] = (r.startTime || '00:00').split(':').map(Number);
+                  const [eh, em] = (r.endTime || '00:00').split(':').map(Number);
+                  const hours = r.onLeave ? 0 : (eh * 60 + em - sh * 60 - sm) / 60;
                   return (
                     <div key={r.id} className="flex items-center gap-3">
                       <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
                       <span className="text-sm font-medium text-gray-800">{r.user.name}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${status.color}`}>{status.text}</span>
-                      <span className="text-xs text-gray-400">{hours.toFixed(1)}h</span>
+                      {!r.onLeave && <span className="text-xs text-gray-400">{hours.toFixed(1)}h</span>}
                       <span className="text-sm text-gray-500 ml-auto">
-                        {r.startTime} - {r.endTime}
+                        {r.onLeave ? '已请假' : `${r.startTime} - ${r.endTime}`}
                       </span>
                     </div>
                   );
