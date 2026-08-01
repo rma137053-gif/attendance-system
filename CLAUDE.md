@@ -187,45 +187,118 @@ Uses `node-cron`. Only runs on PM2 worker 0 (`NODE_APP_INSTANCE === '0'`):
 - **`store-admin/ClockPage.tsx`** (primary): Select employee → PIN → type → camera → confirm. Auto-resets 3s.
 - **`employee/ClockPage.tsx`** (legacy): Select identity → type → camera → confirm. No PIN.
 
-## Deployment
+## 部署 (Deployment)
 
-### Server connection
+### ⛔ 部署三大铁律 — 违反任何一条都会导致生产事故
 
-Alibaba Cloud ECS. SSH via Perl Expect scripts. Nginx on port 80 proxies `/api/` to Express on port 3000, serves client from `/app/client/dist/`.
+1. **备份先行**：部署前必须先执行 `bash /root/backup-all-dbs.sh`
+2. **保护数据库**：tar 包禁止包含 `prisma/dev.db`；服务器上禁止 `rm -rf prisma/`，只删 `prisma/migrations/` 和 `prisma/schema.prisma`
+3. **只动目标服务**：禁止 `pm2 delete all`；用 `pm2 delete attendance-server` 只操作考勤系统
 
-### Deploy steps (full)
+### 服务器连接
 
-1. Build all three projects:
-   ```bash
-   cd server && npm run build
-   cd client && npm run build
-   cd roster-client && npm run build
-   ```
-2. Create base64 tarballs:
-   ```bash
-   cd server && tar czf /tmp/server-deploy.tar.gz dist prisma package.json package-lock.json && base64 -i /tmp/server-deploy.tar.gz -o /tmp/server-deploy.b64
-   cd client/dist && tar czf /tmp/client-only.tar.gz . && base64 -i /tmp/client-only.tar.gz -o /tmp/client-only.b64
-   cd roster-client/dist && tar czf /tmp/roster-only.tar.gz . && base64 -i /tmp/roster-only.tar.gz -o /tmp/roster-only.b64
-   ```
-3. Run `/tmp/deploy_all.pl` (Perl Expect script that uploads tarballs, extracts, runs `npm ci --omit=dev`, `prisma migrate deploy`, and restarts PM2)
+阿里云 ECS: `47.102.223.195`，用户 `root`，密码 `Amlx123456`
+Nginx 80 → Express :3000，前端 `/app/client/dist/`
 
-### CRITICAL: PM2 restart
+### 服务器目录结构
 
-**Never use `pm2 restart`** — it does NOT clear Node.js require cache, so old middleware/service modules linger in memory.
+| 路径 | 说明 |
+|------|------|
+| `/app/server/` | 考勤 Express 后端 (PM2: attendance-server → :3000) |
+| `/app/finance-server/` | 财务后端 (PM2: finance-server → :3001) |
+| `/app/inventory-server/` | 进销存后端 (PM2: inventory-server → :3002) |
+| `/app/tag-server/` | 标签后端 (PM2: tag-server → :3003) |
+| `/app/client/dist/` | 考勤前端 (nginx `/`) |
+| `/app/client/dist/roster/` | 排班助手前端 (nginx `/roster/`) |
 
-Always use:
+### 部署步骤（严格按顺序）
+
+**Step 0: 备份数据库**
+
 ```bash
-pm2 delete all
-sleep 1
-pm2 start /app/server/dist/index.js --name attendance-server
+# 通过 SSH 执行，备份所有系统的数据库
+bash /root/backup-all-dbs.sh
 ```
 
-### Client deployment path rules
+**Step 1: 本地构建**
 
-- Main client `dist/` tarball is created from **inside** `dist/` (contents, not the directory itself)
-- Roster client `dist/` tarball is created the same way and extracted to `/app/client/dist/roster/`
-- Do NOT `rm -rf /app/client/dist/*` — it will delete `/app/client/dist/roster/`. Only delete specific files: `assets`, `index.html`, `favicon.svg`, `logo.png`
-- Do NOT `rm -rf /app/client/dist/roster/*` — only delete specific roster files
+```bash
+cd server && npm run build
+cd client && npm run build
+cd roster-client && npm run build
+```
+
+**Step 2: 打包（禁止包含 dev.db）**
+
+```bash
+# macOS 必须加 COPYFILE_DISABLE=1 防止 Apple Double 文件污染
+# ⛔ 只打包 dist/ prisma/migrations/ prisma/schema.prisma — 绝不打 prisma/dev.db！
+cd server && COPYFILE_DISABLE=1 tar czf /tmp/server-deploy.tar.gz dist/ prisma/migrations/ prisma/schema.prisma package.json package-lock.json
+cd client/dist && COPYFILE_DISABLE=1 tar czf /tmp/client-only.tar.gz .
+cd roster-client/dist && COPYFILE_DISABLE=1 tar czf /tmp/roster-only.tar.gz .
+```
+
+**Step 3: 上传到服务器**
+
+用 Perl Expect 脚本通过 scp 上传（自动处理密码）。
+
+**Step 4: 服务器端部署**
+
+```bash
+# === 停止考勤服务（只停这一个！） ===
+pm2 delete attendance-server
+
+# === 部署 server（逐文件删除，不用 rm -rf prisma/） ===
+rm -rf /app/server/dist/
+rm -rf /app/server/prisma/migrations/
+rm -f /app/server/prisma/schema.prisma
+rm -f /app/server/package.json
+rm -f /app/server/package-lock.json
+# ⛔ 绝对不碰 /app/server/prisma/dev.db！
+tar xzf /tmp/server-deploy.tar.gz -C /app/server/
+cd /app/server && npm ci --omit=dev
+cd /app/server && npx prisma migrate deploy
+
+# === 部署 client ===
+cd /app/client/dist && rm -rf assets/ index.html favicon.svg logo.png
+cd /app/client/dist && tar xzf /tmp/client-only.tar.gz
+chmod -R 755 /app/client/dist
+
+# === 部署 roster-client ===
+cd /app/client/dist/roster && rm -rf assets/ index.html
+cd /app/client/dist/roster && tar xzf /tmp/roster-only.tar.gz
+chmod -R 755 /app/client/dist/roster
+
+# === 启动考勤服务 ===
+cd /app/server && pm2 start dist/index.js --name attendance-server
+pm2 save
+```
+
+**Step 5: 验证**
+
+```bash
+curl -s http://localhost:3000/api/health   # 考勤
+# 确认其他服务没有被影响：
+pm2 list   # 四个服务都应该 online
+```
+
+**Step 6: 拉取数据库备份到本地**
+
+```bash
+cd ~/Desktop/Claude\ Code && bash pull-backups.sh
+```
+
+### PM2 重启规则
+
+- ✅ `pm2 delete attendance-server` → `pm2 start ... --name attendance-server`（只重启考勤）
+- ❌ `pm2 delete all`（会杀掉财务、进销存、标签服务！）
+- ❌ `pm2 restart`（不清理 require cache）
+
+### 客户端部署规则
+
+- 禁止 `rm -rf /app/client/dist/*`（会删掉 `/app/client/dist/roster/`）
+- 禁止 `rm -rf /app/client/dist/roster/*`
+- 只删除具体文件：`assets/`、`index.html`、`favicon.svg`、`logo.png`
 
 ## Tailwind CSS v4 theme
 
