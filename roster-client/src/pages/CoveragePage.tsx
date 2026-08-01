@@ -46,6 +46,7 @@ export default function CoveragePage() {
   const [selectedStoreId, setSelectedStoreId] = useState('');
   const [startDate, setStartDate] = useState(() => dayjs().startOf('week').add(1, 'day').format('YYYY-MM-DD'));
   const [endDate, setEndDate] = useState(() => dayjs().startOf('week').add(1, 'day').add(6, 'day').format('YYYY-MM-DD'));
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<CoverageItem | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
@@ -143,6 +144,13 @@ export default function CoveragePage() {
 
   if (loading) return <Spinner />;
 
+  const filteredItems = selectedEmployeeId
+    ? items.filter((i) => i.userId === selectedEmployeeId)
+    : items;
+  const displayTotal = selectedEmployeeId
+    ? filteredItems.reduce((sum, i) => sum + i.hours, 0)
+    : totalHours;
+
   return (
     <div className="animate-fade-in space-y-3">
       <h1 className="text-base font-bold text-gray-800">被动加班（顶班）</h1>
@@ -158,6 +166,11 @@ export default function CoveragePage() {
         <span className="self-center text-gray-400 text-sm">—</span>
         <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
           className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white" />
+        <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 bg-white">
+          <option value="">全部员工</option>
+          {employees.map((e) => (<option key={e.id} value={e.id}>{e.name}</option>))}
+        </select>
       </div>
 
       {!selectedStoreId ? (
@@ -172,7 +185,7 @@ export default function CoveragePage() {
           </div>
 
           <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm text-center">
-            <div className="text-xl font-bold text-purple-600">{totalHours}h</div>
+            <div className="text-xl font-bold text-purple-600">{displayTotal.toFixed(1)}h</div>
             <div className="text-xs text-gray-400 mt-0.5">顶班总时长</div>
           </div>
 
@@ -190,9 +203,9 @@ export default function CoveragePage() {
                 </tr>
               </thead>
               <tbody>
-                {items.length === 0 ? (
+                {filteredItems.length === 0 ? (
                   <tr><td colSpan={7} className="text-center py-12 text-gray-400">暂无顶班记录</td></tr>
-                ) : items.map((item) => (
+                ) : filteredItems.map((item) => (
                   <tr key={item.id} className="border-b border-gray-50 last:border-b-0">
                     <td className="py-3 px-3 font-medium text-gray-800">{item.user.name}</td>
                     <td className="py-3 px-3 text-purple-600 font-medium">{item.coveredUser?.name || '-'}</td>
