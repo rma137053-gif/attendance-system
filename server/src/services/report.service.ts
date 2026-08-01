@@ -230,14 +230,24 @@ async function buildOvertimeMap(userIds: string[], rangeStart: Date, rangeEnd: D
   if (userIds.length === 0) return { volMap, covMap };
   const records = await prisma.overtimeRecord.findMany({
     where: { userId: { in: userIds }, date: { gte: rangeStart, lte: rangeEnd } },
-    select: { userId: true, hours: true, type: true },
+    select: { userId: true, hours: true, type: true, date: true },
   });
+  // 收集所有有被动加班(COVERAGE)的日期，避免同日主动加班重复计算
+  const coverageDays = new Set<string>();
+  for (const r of records) {
+    if (r.type === 'COVERAGE') {
+      coverageDays.add(`${r.userId}_${r.date.getTime()}`);
+    }
+  }
   for (const r of records) {
     const h = Math.round(r.hours * 60); // convert to minutes
     if (r.type === 'COVERAGE') {
       covMap.set(r.userId, (covMap.get(r.userId) || 0) + h);
     } else if (h >= 60) { // 主动加班 ≥ 1 小时才起算
-      volMap.set(r.userId, (volMap.get(r.userId) || 0) + h);
+      // 同天已有被动加班 → 跳过，避免双重计算
+      if (!coverageDays.has(`${r.userId}_${r.date.getTime()}`)) {
+        volMap.set(r.userId, (volMap.get(r.userId) || 0) + h);
+      }
     }
   }
   return { volMap, covMap };
