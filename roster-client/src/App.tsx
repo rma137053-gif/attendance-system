@@ -10,6 +10,8 @@ import ManagePage from './pages/ManagePage';
 import HoursPage from './pages/HoursPage';
 import RestPage from './pages/RestPage';
 import LeavePage from './pages/LeavePage';
+import OvertimePage from './pages/OvertimePage';
+import CoveragePage from './pages/CoveragePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -61,6 +63,8 @@ function AppRoutes() {
       <Route path="/rest" element={<ProtectedRoute><RestPage /></ProtectedRoute>} />
       <Route path="/leaves" element={<ProtectedRoute><LeavePage /></ProtectedRoute>} />
       <Route path="/manage" element={<AdminRoute><ManagePage /></AdminRoute>} />
+      <Route path="/overtime" element={<AdminRoute><OvertimePage /></AdminRoute>} />
+      <Route path="/overtime-coverage" element={<AdminRoute><CoveragePage /></AdminRoute>} />
       <Route path="/hours" element={<AdminRoute><HoursPage /></AdminRoute>} />
       <Route path="*" element={<Navigate to="/today" replace />} />
     </Routes>

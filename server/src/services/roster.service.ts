@@ -305,7 +305,8 @@ export async function queryRoster(
       const [eh, em] = r.endTime.split(':').map(Number);
       const endMin = eh * 60 + em;
       if (clockOutMin > endMin) {
-        overtimeMinutes = clockOutMin - endMin;
+        const diff = clockOutMin - endMin;
+        overtimeMinutes = diff >= 60 ? diff : 0; // 加班满1小时才算
       }
     }
     const leaveKey = `${r.userId}_${dateStr}`;

@@ -186,4 +186,17 @@ router.put('/:id', requireAdmin, async (req: Request, res: Response, next: NextF
   }
 });
 
+// ADMIN only: 删除打卡记录
+router.delete('/:id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await recordService.deleteRecord(
+      req.params.id as string,
+      req.user!.storeId,
+    );
+    res.json({ message: '已删除', ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

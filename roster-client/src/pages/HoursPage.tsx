@@ -1,187 +1,271 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import Spinner from '../components/Spinner';
 import { ChevronLeft, ChevronRight } from '../components/Icon';
 import dayjs from 'dayjs';
 
-interface RosterItem {
-  id: string;
-  shiftDate: string;
-  startTime: string;
-  endTime: string;
-  breakMinutes?: number;
-  overtimeMinutes?: number;
-  user: { id: string; name: string };
-  store?: { id: string; name: string };
-}
-
-interface EmpHours {
+interface ReportRow {
   userId: string;
-  name: string;
+  userName: string;
+  userEmail: string;
   storeName: string;
-  totalHours: number;
-  overtimeHours: number;
-  workDays: number;
-  details: { dateStr: string; startTime: string; endTime: string; hours: number; overtime: number }[];
+  clockInCount: number;
+  clockOutCount: number;
+  daysWithRecords: number;
+  workHours: string;
+  overtime: string;
+  overtimeVoluntary: string;
+  overtimeCoverage: string;
+  earlyDeparture: string;
+  lateCount: number;
+  earlyCount: number;
+  missingClockOut: boolean;
+  leaveDays: number;
+  restDays: number;
 }
 
-function calcHours(startTime: string, endTime: string, breakMinutes?: number): number {
-  const [sh, sm] = startTime.split(':').map(Number);
-  const [eh, em] = endTime.split(':').map(Number);
-  return (eh * 60 + em - sh * 60 - sm - (breakMinutes ?? 0)) / 60;
+interface DailyItem {
+  date: string;
+  dow: number;
+  roster: { startTime: string; endTime: string } | null;
+  ins: string[];
+  outs: string[];
+  isLeave: boolean;
+  isRest: boolean;
 }
+
+const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 export default function HoursPage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const isAdmin = user?.role === 'ADMIN';
   const [currentMonth, setCurrentMonth] = useState(dayjs().startOf('month'));
-  const [rosters, setRosters] = useState<RosterItem[]>([]);
+  const [items, setItems] = useState<ReportRow[]>([]);
+  const [summary, setSummary] = useState<ReportRow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [dailyData, setDailyData] = useState<DailyItem[]>([]);
+  const [dailyLoading, setDailyLoading] = useState(false);
 
-  const monthStart = currentMonth.format('YYYY-MM-DD');
-  const monthEnd = currentMonth.endOf('month').format('YYYY-MM-DD');
+  const monthStr = currentMonth.format('YYYY-MM');
 
-  useEffect(() => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    const params: any = {
-      startDate: monthStart,
-      endDate: monthEnd,
-    };
-    api.get('/roster', { params })
-      .then((res) => setRosters(res.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [monthStart]);
+    try {
+      const res = await api.get('/reports/monthly', { params: { month: monthStr } });
+      const data = res.data;
+      setItems(data.rows || data);
+      setSummary(data.summary || null);
+    } catch {
+      showToast('加载工时数据失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [monthStr]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const toggleDetail = async (userId: string) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+      return;
+    }
+    setExpandedUserId(userId);
+    setDailyLoading(true);
+    try {
+      const res = await api.get('/reports/user-daily', { params: { userId, month: monthStr } });
+      setDailyData(res.data);
+    } catch {
+      showToast('加载明细失败', 'error');
+      setExpandedUserId(null);
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  const exportCsv = () => {
+    const headers = ['姓名', '门店', '出勤天', '请假天', '选休天', '工时', '主动加班', '被动加班', '早退', '迟到', '缺卡'];
+    const lines = [headers.join(',')];
+    items.forEach((r) => {
+      lines.push([
+        r.userName, r.storeName, r.daysWithRecords, r.leaveDays || 0, r.restDays || 0,
+        r.workHours, r.overtimeVoluntary !== '0' ? r.overtimeVoluntary : '0',
+        r.overtimeCoverage !== '0' ? r.overtimeCoverage : '0',
+        r.earlyDeparture !== '0' ? r.earlyDeparture : '0',
+        r.lateCount || '', r.missingClockOut ? '是' : '否',
+      ].join(','));
+    });
+    if (summary) {
+      lines.push(['合计', '', summary.daysWithRecords, summary.leaveDays || 0, summary.restDays || 0,
+        summary.workHours, summary.overtimeVoluntary !== '0' ? summary.overtimeVoluntary : '0',
+        summary.overtimeCoverage !== '0' ? summary.overtimeCoverage : '0',
+        summary.earlyDeparture !== '0' ? summary.earlyDeparture : '0',
+        summary.lateCount || '', summary.missingClockOut ? '是' : '否',
+      ].join(','));
+    }
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `工时统计_${monthStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const prevMonth = () => setCurrentMonth(currentMonth.subtract(1, 'month'));
   const nextMonth = () => setCurrentMonth(currentMonth.add(1, 'month'));
 
-  // Aggregate by employee
-  const empMap = new Map<string, EmpHours>();
-  for (const r of rosters) {
-    const key = r.user.id;
-    if (!empMap.has(key)) {
-      empMap.set(key, {
-        userId: r.user.id,
-        name: r.user.name,
-        storeName: r.store?.name || '本店',
-        totalHours: 0,
-        overtimeHours: 0,
-        workDays: 0,
-        details: [],
-      });
-    }
-    const emp = empMap.get(key)!;
-    const hours = calcHours(r.startTime, r.endTime, r.breakMinutes);
-    const overtime = r.overtimeMinutes ? r.overtimeMinutes / 60 : 0;
-    emp.totalHours += hours;
-    emp.overtimeHours += overtime;
-    emp.workDays++;
-    emp.details.push({
-      dateStr: dayjs(r.shiftDate).format('YYYY-MM-DD'),
-      startTime: r.startTime,
-      endTime: r.endTime,
-      hours,
-      overtime,
-    });
-  }
-
-  // Sort by store then name
-  const employees = [...empMap.values()].sort((a, b) => {
-    if (a.storeName !== b.storeName) return a.storeName.localeCompare(b.storeName);
-    return a.name.localeCompare(b.name);
-  });
-
-  const toggleExpand = (userId: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
-    });
-  };
+  const tdClass = 'py-2.5 px-2 text-center';
+  const thClass = 'py-2.5 px-2 text-center';
 
   return (
     <div className="animate-fade-in space-y-4">
-      <h1 className="text-base font-bold text-gray-800">工时统计</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-base font-bold text-gray-800">工时统计</h1>
+        {!loading && items.length > 0 && (
+          <button onClick={exportCsv} className="px-3 py-1.5 text-xs font-medium bg-brand-light text-brand rounded-lg hover:bg-brand/10 transition-colors">
+            导出 CSV
+          </button>
+        )}
+      </div>
 
-      {/* Month Navigator */}
       <div className="flex items-center justify-between bg-white rounded-2xl p-3 border border-gray-100 shadow-sm">
         <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
           <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <span className="text-base font-semibold text-gray-700">
-          {currentMonth.format('YYYY年M月')}
-        </span>
+        <span className="text-base font-semibold text-gray-700">{currentMonth.format('YYYY年M月')}</span>
         <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
           <ChevronRight className="w-5 h-5 text-gray-600" />
         </button>
       </div>
 
-      {loading ? (
-        <Spinner />
-      ) : employees.length > 0 ? (
-        <div className="space-y-2">
-          {employees.map((emp) => {
-            const isExpanded = expanded.has(emp.userId);
-            return (
-              <div key={emp.userId} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <button
-                  onClick={() => toggleExpand(emp.userId)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+      {loading ? <Spinner /> : items.length > 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-gray-500 text-xs">
+                <th className="text-left py-2.5 px-3">姓名</th>
+                {isAdmin && <th className={`text-left ${thClass} hidden sm:table-cell`}>门店</th>}
+                <th className={thClass}>出勤</th>
+                <th className={`${thClass} hidden sm:table-cell`}>请假</th>
+                <th className={`${thClass} hidden sm:table-cell`}>选休</th>
+                <th className={thClass}>工时</th>
+                <th className={thClass}>主动加班</th>
+                <th className={`${thClass} hidden sm:table-cell`}>被动加班</th>
+                <th className={`${thClass} hidden sm:table-cell`}>早退</th>
+                <th className={thClass}>迟到</th>
+                <th className={thClass}>缺卡</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r) => (
+                <><tr
+                  key={r.userId}
+                  onClick={() => toggleDetail(r.userId)}
+                  className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors ${expandedUserId === r.userId ? 'bg-brand-light/30' : ''}`}
                 >
-                  <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                  <span className="text-sm font-semibold text-gray-800">{emp.name}</span>
-                  {isAdmin && (
-                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{emp.storeName}</span>
-                  )}
-                  <div className="ml-auto flex items-center gap-3 text-sm">
-                    <span className="text-gray-500">{emp.workDays}天</span>
-                    {emp.overtimeHours > 0 && (
-                      <span className="text-danger font-medium text-xs">+{emp.overtimeHours.toFixed(1)}h</span>
-                    )}
-                    <span className="text-brand font-bold min-w-[3rem] text-right">{emp.totalHours.toFixed(1)}h</span>
-                  </div>
-                </button>
-                {isExpanded && (
-                  <div className="px-4 pb-3 space-y-1">
-                    <div className="text-xs text-gray-400 flex items-center gap-3 px-2 pb-1">
-                      <span className="min-w-[5rem]">日期</span>
-                      <span className="min-w-[6.5rem]">时间</span>
-                      <span className="min-w-[3rem]">工时</span>
-                      <span>加班</span>
-                    </div>
-                    {emp.details
-                      .sort((a, b) => a.dateStr.localeCompare(b.dateStr))
-                      .map((d) => (
-                        <div key={d.dateStr} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm">
-                          <span className="text-gray-500 min-w-[5rem]">
-                            {dayjs(d.dateStr).format('MM/DD (dd)')}
-                          </span>
-                          <span className="text-gray-700 font-medium min-w-[6.5rem]">
-                            {d.startTime} - {d.endTime}
-                          </span>
-                          <span className="text-brand font-semibold min-w-[3rem]">{d.hours.toFixed(1)}h</span>
-                          <span className={d.overtime > 0 ? 'text-danger font-medium' : 'text-gray-400'}>
-                            {d.overtime > 0 ? `+${d.overtime.toFixed(1)}h` : '—'}
-                          </span>
+                  <td className="py-2.5 px-3 font-medium text-gray-800">{r.userName}</td>
+                  {isAdmin && <td className={`${tdClass} text-gray-400 hidden sm:table-cell`}>{r.storeName}</td>}
+                  <td className={`${tdClass} text-gray-600`}>{r.daysWithRecords}</td>
+                  <td className={`${tdClass} text-gray-600 hidden sm:table-cell`}>{r.leaveDays || '—'}</td>
+                  <td className={`${tdClass} hidden sm:table-cell font-medium ${r.restDays > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                    {r.restDays > 0 ? `${r.restDays}天` : '—'}
+                  </td>
+                  <td className={`${tdClass} font-semibold text-brand`}>{r.workHours}</td>
+                  <td className={`${tdClass} font-medium ${r.overtimeVoluntary !== '0' ? 'text-danger' : 'text-gray-400'}`}>
+                    {r.overtimeVoluntary !== '0' ? `+${r.overtimeVoluntary}` : '—'}
+                  </td>
+                  <td className={`${tdClass} font-medium hidden sm:table-cell ${r.overtimeCoverage !== '0' ? 'text-purple-600' : 'text-gray-400'}`}>
+                    {r.overtimeCoverage !== '0' ? `+${r.overtimeCoverage}` : '—'}
+                  </td>
+                  <td className={`${tdClass} font-medium hidden sm:table-cell ${r.earlyDeparture !== '0' ? 'text-anomaly' : 'text-gray-400'}`}>
+                    {r.earlyDeparture !== '0' ? `-${r.earlyDeparture}` : '—'}
+                  </td>
+                  <td className={tdClass}>{r.lateCount > 0 ? <span className="text-anomaly font-medium">{r.lateCount}次</span> : <span className="text-gray-400">—</span>}</td>
+                  <td className={tdClass}>{r.missingClockOut ? <span className="text-danger text-xs">⚠️</span> : <span className="text-gray-400">—</span>}</td>
+                </tr>
+                {/* 展开的每日明细 */}
+                {expandedUserId === r.userId && (
+                  <tr key={`${r.userId}-detail`}>
+                    <td colSpan={isAdmin ? 11 : 10} className="bg-gray-50 px-3 py-3">
+                      {dailyLoading ? (
+                        <div className="text-center py-4 text-gray-400 text-xs">加载中...</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-gray-400 border-b border-gray-200">
+                                <th className="text-left py-1.5 pr-2">日期</th>
+                                <th className="text-left py-1.5 px-1">排班</th>
+                                <th className="text-left py-1.5 px-1">打卡</th>
+                                <th className="text-center py-1.5 px-1 w-10">假</th>
+                                <th className="text-center py-1.5 px-1 w-10">休</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {dailyData.filter((d) => d.roster || d.ins.length > 0 || d.isLeave || d.isRest).map((d) => {
+                                const rosterStr = d.roster ? `${d.roster.startTime}-${d.roster.endTime}` : '';
+                                const clockStr = [d.ins.join(','), d.outs.join(',')].filter((s) => s).join('→');
+                                return (
+                                  <tr key={d.date} className="border-b border-gray-100 last:border-b-0">
+                                    <td className="py-1 pr-2 text-gray-500 whitespace-nowrap">
+                                      {dayjs(d.date).format('M/D')} {WEEKDAY[d.dow]}
+                                    </td>
+                                    <td className={`py-1 px-1 whitespace-nowrap ${d.roster ? 'text-gray-700' : 'text-gray-300'}`}>
+                                      {d.roster ? rosterStr : '休'}
+                                    </td>
+                                    <td className={`py-1 px-1 font-mono ${d.ins.length > 0 || d.outs.length > 0 ? 'text-gray-700' : 'text-gray-300'}`}>
+                                      {clockStr || '—'}
+                                    </td>
+                                    <td className="py-1 px-1 text-center">
+                                      {d.isLeave ? <span className="text-amber-600 font-medium">假</span> : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="py-1 px-1 text-center">
+                                      {d.isRest ? <span className="text-purple-500 font-medium">休</span> : <span className="text-gray-300">—</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      ))}
-                    {emp.totalHours > 160 && (
-                      <p className="text-xs text-danger mt-2">已超过标准工时(160h)</p>
-                    )}
-                  </div>
+                      )}
+                    </td>
+                  </tr>
                 )}
-              </div>
-            );
-          })}
+                </>
+              ))}
+            </tbody>
+            {summary && (
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-xs">
+                  <td className="py-2.5 px-3 text-gray-700">合计</td>
+                  {isAdmin && <td className={`${tdClass} text-gray-400 hidden sm:table-cell`}>—</td>}
+                  <td className={`${tdClass} text-gray-700`}>{summary.daysWithRecords}</td>
+                  <td className={`${tdClass} text-gray-700 hidden sm:table-cell`}>{summary.leaveDays || '—'}</td>
+                  <td className={`${tdClass} text-gray-700 hidden sm:table-cell`}>{summary.restDays || '—'}</td>
+                  <td className={`${tdClass} text-brand`}>{summary.workHours}</td>
+                  <td className={`${tdClass} ${summary.overtimeVoluntary !== '0' ? 'text-danger' : 'text-gray-400'}`}>
+                    {summary.overtimeVoluntary !== '0' ? `+${summary.overtimeVoluntary}` : '—'}
+                  </td>
+                  <td className={`${tdClass} hidden sm:table-cell ${summary.overtimeCoverage !== '0' ? 'text-purple-600' : 'text-gray-400'}`}>
+                    {summary.overtimeCoverage !== '0' ? `+${summary.overtimeCoverage}` : '—'}
+                  </td>
+                  <td className={`${tdClass} hidden sm:table-cell ${summary.earlyDeparture !== '0' ? 'text-anomaly' : 'text-gray-400'}`}>
+                    {summary.earlyDeparture !== '0' ? `-${summary.earlyDeparture}` : '—'}
+                  </td>
+                  <td className={tdClass}>{summary.lateCount > 0 ? <span className="text-anomaly font-medium">{summary.lateCount}次</span> : <span className="text-gray-400">—</span>}</td>
+                  <td className={tdClass}>{summary.missingClockOut ? <span className="text-danger text-xs">⚠️</span> : <span className="text-gray-400">—</span>}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       ) : (
-        <div className="text-center py-20 text-gray-400">
-          <p className="text-sm">本月暂无排班数据</p>
-        </div>
+        <div className="text-center py-20 text-gray-400"><p className="text-sm">本月暂无数据</p></div>
       )}
     </div>
   );

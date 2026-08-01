@@ -86,6 +86,7 @@ const updateSchema = z.object({
   name: z.string().min(1, '姓名不能为空').optional(),
   email: z.string().email('邮箱格式不正确').optional(),
   pin: z.string().regex(/^\d{4,6}$/, 'PIN码必须为4-6位数字').optional().or(z.literal('')),
+  crossStore: z.boolean().optional(),
 });
 
 router.put('/:id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {

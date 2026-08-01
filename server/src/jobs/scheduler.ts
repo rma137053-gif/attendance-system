@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { runReminderCheck } from './clockReminder.job';
 import { runPhotoCleanup } from './photoCleanup.job';
+import { runDbBackup } from './dbBackup.job';
 
 let started = false;
 
@@ -21,6 +22,15 @@ export function startScheduler() {
       await runReminderCheck();
     } catch (err) {
       console.error('[Scheduler] Reminder check error:', err);
+    }
+  });
+
+  // 每天凌晨0点备份数据库
+  cron.schedule('0 0 * * *', async () => {
+    try {
+      await runDbBackup();
+    } catch (err) {
+      console.error('[Scheduler] DB backup error:', err);
     }
   });
 

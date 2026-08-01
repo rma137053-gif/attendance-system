@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import api from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 
 dayjs.extend(utc);
@@ -42,7 +43,26 @@ interface Leave {
   createdAt: string;
 }
 
+interface MonthlyLeaveItem {
+  userId: string;
+  userName: string;
+  storeName: string;
+  totalDays: number;
+  annualDays: number;
+  sickDays: number;
+  personalDays: number;
+  dates: string[];
+}
+
+interface Store {
+  id: string;
+  name: string;
+}
+
 export default function LeavePage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const isManager = user?.role === 'ADMIN' || user?.role === 'STORE_ADMIN';
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
@@ -55,6 +75,32 @@ export default function LeavePage() {
   const [submitting, setSubmitting] = useState(false);
   const { showToast } = useToast();
   const pageSize = 20;
+
+  // 月度请假统计
+  const [showMonthly, setShowMonthly] = useState(false);
+  const [statsMonth, setStatsMonth] = useState(dayjs().format('YYYY-MM'));
+  const [statsStoreId, setStatsStoreId] = useState('');
+  const [stores, setStores] = useState<Store[]>([]);
+  const [monthlySummary, setMonthlySummary] = useState<MonthlyLeaveItem[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'ADMIN') {
+      api.get('/users/stores').then((res) => setStores(res.data)).catch(() => {});
+    }
+  }, [user?.role]);
+
+  const fetchMonthlySummary = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const params: any = { month: statsMonth };
+      if (user?.role === 'ADMIN' && statsStoreId) params.storeId = statsStoreId;
+      const res = await api.get('/leaves/monthly-summary', { params });
+      setMonthlySummary(res.data);
+    } catch { setMonthlySummary([]); } finally { setStatsLoading(false); }
+  }, [statsMonth, statsStoreId, user?.role]);
+
+  useEffect(() => { if (showMonthly) fetchMonthlySummary(); }, [showMonthly, fetchMonthlySummary]);
 
   const fetchLeaves = async () => {
     try {
@@ -303,6 +349,98 @@ export default function LeavePage() {
               下一页
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 月度请假登记（管理员+店长） */}
+      {isManager && (
+        <div className="mt-8 border-t border-gray-200 pt-6">
+          <button
+            onClick={() => setShowMonthly(!showMonthly)}
+            className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-brand transition-colors"
+          >
+            <span className="text-lg">📋</span>
+            月度请假登记
+            <span className="text-xs text-gray-400">{showMonthly ? '收起' : '展开'}</span>
+          </button>
+
+          {showMonthly && (
+            <div className="mt-4 space-y-4">
+              <div className="flex gap-2 flex-wrap">
+                <input type="month" value={statsMonth} onChange={(e) => setStatsMonth(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white" />
+                {isAdmin && (
+                  <select value={statsStoreId} onChange={(e) => setStatsStoreId(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                    <option value="">全部门店</option>
+                    {stores.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                  </select>
+                )}
+                <button onClick={fetchMonthlySummary}
+                  className="px-4 py-2 rounded-xl bg-brand text-white text-sm font-medium hover:bg-brand-dark">查询</button>
+              </div>
+
+              {statsLoading ? (
+                <div className="text-center py-8 text-gray-400 text-sm">加载中...</div>
+              ) : monthlySummary.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">暂无数据</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm text-center">
+                      <div className="text-xl font-bold text-brand">{monthlySummary.length}</div>
+                      <div className="text-xs text-gray-400">员工人数</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm text-center">
+                      <div className="text-xl font-bold text-amber-600">{monthlySummary.filter((r) => r.totalDays > 0).length}</div>
+                      <div className="text-xs text-gray-400">已请假</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm text-center">
+                      <div className="text-xl font-bold text-shift-early">{monthlySummary.reduce((s, r) => s + r.totalDays, 0)}</div>
+                      <div className="text-xs text-gray-400">总天数</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm text-center">
+                      <div className="text-xl font-bold text-purple-600">{monthlySummary.reduce((s, r) => s + r.annualDays, 0)}</div>
+                      <div className="text-xs text-gray-400">年假天数</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-gray-500 text-xs">
+                          <th className="text-left py-3 px-3">姓名</th>
+                          {isAdmin && !statsStoreId && <th className="text-left py-3 px-3">门店</th>}
+                          <th className="text-center py-3 px-2">总计</th>
+                          <th className="text-center py-3 px-2">年假</th>
+                          <th className="text-center py-3 px-2">病假</th>
+                          <th className="text-center py-3 px-2">事假</th>
+                          <th className="text-left py-3 px-3">日期</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlySummary.map((r) => (
+                          <tr key={r.userId} className="border-b border-gray-50 last:border-b-0">
+                            <td className="py-3 px-3 font-medium text-gray-800">{r.userName}</td>
+                            {isAdmin && !statsStoreId && <td className="py-3 px-3 text-gray-400">{r.storeName}</td>}
+                            <td className="py-3 px-2 text-center">
+                              <span className={`font-semibold ${r.totalDays > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{r.totalDays}天</span>
+                            </td>
+                            <td className="py-3 px-2 text-center text-gray-600">{r.annualDays > 0 ? `${r.annualDays}天` : '—'}</td>
+                            <td className="py-3 px-2 text-center text-gray-600">{r.sickDays > 0 ? `${r.sickDays}天` : '—'}</td>
+                            <td className="py-3 px-2 text-center text-gray-600">{r.personalDays > 0 ? `${r.personalDays}天` : '—'}</td>
+                            <td className="py-3 px-3 text-gray-500 text-xs">
+                              {r.dates.length > 0 ? r.dates.map((d: string) => dayjs(d).format('M/D')).join('、') : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

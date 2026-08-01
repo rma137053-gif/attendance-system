@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/client';
-
 import { useToast } from '../../hooks/useToast';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 interface Record {
   id: string;
@@ -49,6 +49,11 @@ export default function AllRecords() {
   const [editRecordId, setEditRecordId] = useState<string | null>(null);
   const [form, setForm] = useState({ userId: '', type: 'CLOCK_IN', date: '', time: '', note: '' });
   const [submitting, setSubmitting] = useState(false);
+
+  // Delete confirmation state
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; recordId: string; userName: string }>({
+    open: false, recordId: '', userName: '',
+  });
 
   const openCreateModal = () => {
     setModalMode('create');
@@ -137,6 +142,17 @@ export default function AllRecords() {
   }, [page, filters]);
 
   const totalPages = Math.ceil(total / pageSize);
+
+  const handleDelete = async () => {
+    try {
+      await api.delete(`/records/${confirmDelete.recordId}`);
+      success('已删除');
+      setConfirmDelete({ open: false, recordId: '', userName: '' });
+      fetchRecords(page);
+    } catch (err: any) {
+      showError(err.response?.data?.error || '删除失败');
+    }
+  };
 
   const handleViewPhoto = async (id: string) => {
     if (viewPhotoId === id) {
@@ -311,6 +327,12 @@ export default function AllRecords() {
                     >
                       {r.isAnomalous ? '✓ 标记正常' : '标记异常'}
                     </button>
+                    <button
+                      onClick={() => setConfirmDelete({ open: true, recordId: r.id, userName: r.user.name })}
+                      className="text-xs text-red-400 hover:text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      删除
+                    </button>
                   </div>
                 </div>
                 {viewPhotoId === r.id && (
@@ -446,6 +468,14 @@ export default function AllRecords() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDelete.open}
+        title="确认删除打卡记录"
+        message={`确定要删除 ${confirmDelete.userName} 的打卡记录吗？此操作不可撤销。`}
+        confirmLabel="确认删除"
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete({ open: false, recordId: '', userName: '' })}
+      />
     </div>
   );
 }

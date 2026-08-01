@@ -16,6 +16,7 @@ model Store {
   leaves      Leave[]        @relation("LeaveStore")
   weeklyRests WeeklyRest[]
   announcements Announcement[]
+  overtimeRecords OvertimeRecord[]
 }
 
 model User {
@@ -25,9 +26,14 @@ model User {
   name         String
   role         String        @default("EMPLOYEE") // EMPLOYEE | ADMIN | STORE_ADMIN
   status       String        @default("ACTIVE")   // ACTIVE | INACTIVE
+  crossStore   Boolean       @default(false)   // 是否允许跨店打卡
+  canSelectRest Boolean      @default(false)   // 是否可以使用选休功能（仅全天班员工）
+  overtimeRecords     OvertimeRecord[] @relation("OvertimeUser")
+  coveredOvertimeRecords OvertimeRecord[] @relation("OvertimeCoveredUser")
   pin          String?
   storeId      String?
   wechatUserId String?       // 企业微信用户ID，用于精准推送
+  tokenVersion Int           @default(0)    // 修改邮箱/密码时递增，使旧token失效
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   store        Store?        @relation(fields: [storeId], references: [id])
@@ -177,4 +183,26 @@ model Announcement {
   user  User   @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
   @@index([storeId, createdAt])
+}
+
+model OvertimeRecord {
+  id            String   @id @default(uuid())
+  userId        String
+  storeId       String
+  date          DateTime   // 加班日期（Beijing 00:00 UTC）
+  startTime     String     // "HH:mm"
+  endTime       String     // "HH:mm"
+  hours         Float      @default(0) // 自动计算 (endTime - startTime) / 60
+  type          String     @default("VOLUNTARY") // VOLUNTARY | COVERAGE
+  coveredUserId String?    // 被顶替员工ID（COVERAGE类型时使用）
+  reason        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User  @relation("OvertimeUser", fields: [userId], references: [id], onDelete: Cascade)
+  store       Store @relation(fields: [storeId], references: [id])
+  coveredUser User? @relation("OvertimeCoveredUser", fields: [coveredUserId], references: [id])
+
+  @@index([storeId, date])
+  @@index([userId, date])
 }

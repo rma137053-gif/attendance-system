@@ -12,7 +12,7 @@ const CLOCK_IN_WINDOW_START = 5;
 const CLOCK_IN_WINDOW_END = 23;
 const CLOCK_OUT_WINDOW_START = 12;
 const CLOCK_OUT_WINDOW_END = 23;
-const OVERTIME_THRESHOLD_MIN = 5;   // 超过排班时间5分钟算加班
+const OVERTIME_THRESHOLD_MIN = 60;  // 超过排班时间60分钟(1小时)算加班
 const EARLY_THRESHOLD_MIN = 1;       // 早退1分钟即标记
 
 function isWithinWindow(type: 'CLOCK_IN' | 'CLOCK_OUT', hour: number): boolean {

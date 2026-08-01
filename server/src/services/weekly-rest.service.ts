@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { beijingDayStart, beijingWeekStart, nowBeijing, toBeijing, formatBeijing } from '../utils/timezone';
+import { beijingDayStart, beijingDayEnd, beijingWeekStart, nowBeijing, toBeijing, formatBeijing } from '../utils/timezone';
 import { sendAppMessage } from './wechat.service';
 import dayjs from 'dayjs';
 
@@ -64,10 +64,16 @@ export async function upsertRestDay(
   const restDay = dayjs.tz(restDate, 'Asia/Shanghai');
   if (!restDay.isValid()) throw new BadRequestError('无效的日期');
 
-  // 仅允许周一至周五（管理员也受此限制）
+  // 仅允许周一至周四（周五六日不可选休，需请假）
   const dayOfWeek = restDay.day();
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    throw new BadRequestError('休息日只能选择周一至周五，周六周日休息请使用请假功能');
+  if (dayOfWeek === 0 || dayOfWeek >= 5) {
+    throw new BadRequestError('休息日只能选择周一至周四，周五至周日休息请使用请假功能');
+  }
+
+  // 检查选休权限（仅全天班员工可使用）
+  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { canSelectRest: true, role: true } });
+  if (targetUser && targetUser.role === 'EMPLOYEE' && !targetUser.canSelectRest) {
+    throw new ForbiddenError('选休功能仅限全天班员工使用，半天班员工请使用请假功能');
   }
 
   const weekStartDay = weekStart
@@ -75,25 +81,7 @@ export async function upsertRestDay(
     : restDay.startOf('isoWeek');
   const weekStartUTC = beijingWeekStart(weekStartDay);
 
-  // 截止时间检查（EMPLOYEE）
-  if (actor.role === 'EMPLOYEE') {
-    const existing = await prisma.weeklyRest.findUnique({
-      where: { userId_weekStart: { userId, weekStart: weekStartUTC } },
-    });
-    // 如果是修改到不同日期且超时，拒绝
-    if (existing) {
-      const existingRestDate = toBeijing(existing.restDate).format('YYYY-MM-DD');
-      if (existingRestDate !== restDate && !canStillModify(restDay)) {
-        throw new BadRequestError('已超过修改截止时间（休息日前一天 23:59）');
-      }
-    } else {
-      if (!canStillModify(restDay)) {
-        throw new BadRequestError('已超过修改截止时间（休息日前一天 23:59）');
-      }
-    }
-  }
-
-  // 检查该天是否已有排班
+  // 选休日限制仅周一至周四（员工随时可修改，无截止时间）
   const existingRoster = await prisma.roster.findUnique({
     where: { userId_shiftDate: { userId, shiftDate: beijingDayStart(restDay) } },
   });
@@ -104,6 +92,22 @@ export async function upsertRestDay(
   const isNew = !(await prisma.weeklyRest.findUnique({
     where: { userId_weekStart: { userId, weekStart: weekStartUTC } },
   }));
+
+  // 新增选休时检查当月上限 4 次
+  if (isNew) {
+    const monthCount = await prisma.weeklyRest.count({
+      where: {
+        userId,
+        restDate: {
+          gte: beijingDayStart(restDay.startOf('month')),
+          lte: beijingDayEnd(restDay.endOf('month')),
+        },
+      },
+    });
+    if (monthCount >= 4) {
+      throw new BadRequestError('每月最多选休 4 次');
+    }
+  }
 
   const result = await prisma.weeklyRest.upsert({
     where: { userId_weekStart: { userId, weekStart: weekStartUTC } },
@@ -118,7 +122,7 @@ export async function upsertRestDay(
       restDate: beijingDayStart(restDay),
       createdBy: actor.role === 'EMPLOYEE' ? 'EMPLOYEE' : 'ADMIN',
     },
-    include: { user: { select: { id: true, name: true } } },
+    include: { user: { select: { id: true, name: true, store: { select: { id: true, name: true } } } } },
   });
 
   // 员工首次选择时通知管理员
@@ -156,7 +160,7 @@ export async function listRestDays(params: ListParams, requester: Actor) {
 
   const items = await prisma.weeklyRest.findMany({
     where,
-    include: { user: { select: { id: true, name: true } } },
+    include: { user: { select: { id: true, name: true, store: { select: { id: true, name: true } } } } },
     orderBy: { restDate: 'asc' },
   });
 
@@ -176,9 +180,6 @@ export async function deleteRestDay(restId: string, actor: Actor) {
 
   if (actor.role === 'EMPLOYEE') {
     if (record.userId !== actor.userId) throw new ForbiddenError('只能操作自己的休息日');
-    if (!canStillModify(toBeijing(record.restDate))) {
-      throw new BadRequestError('已超过修改截止时间，无法取消');
-    }
   }
   if (actor.role === 'STORE_ADMIN' && actor.storeId && record.storeId !== actor.storeId) {
     throw new ForbiddenError('只能操作本店员工的休息日');
@@ -207,23 +208,66 @@ export async function getRestMapForStore(
   return map;
 }
 
-/** 通知所有绑定企微的管理员 */
+/** 通知所有绑定企微的管理员 + 麻伦熙 */
+const NOTIFY_EXTRA = ['MaLunXi']; // 麻伦熙 — 永久接收通知，即使不是系统管理员
+
+/** 月度休息日统计（管理员视角） */
+export async function getMonthlyRestSummary(storeId: string | null, monthStr: string) {
+  const month = dayjs.tz(monthStr, 'Asia/Shanghai');
+  const monthStart = beijingDayStart(month.startOf('month'));
+  const monthEnd = beijingDayEnd(month.endOf('month'));
+
+  const userWhere: any = { status: 'ACTIVE', role: 'EMPLOYEE', canSelectRest: true };
+  if (storeId) userWhere.storeId = storeId;
+
+  const users = await prisma.user.findMany({
+    where: userWhere,
+    select: { id: true, name: true, store: { select: { id: true, name: true } } },
+    orderBy: { name: 'asc' },
+  });
+
+  const restRecords = await prisma.weeklyRest.findMany({
+    where: {
+      userId: { in: users.map((u) => u.id) },
+      restDate: { gte: monthStart, lte: monthEnd },
+    },
+    select: { userId: true, restDate: true },
+    orderBy: { restDate: 'asc' },
+  });
+
+  const restByUser: Record<string, string[]> = {};
+  for (const r of restRecords) {
+    const dateStr = toBeijing(r.restDate).format('YYYY-MM-DD');
+    if (!restByUser[r.userId]) restByUser[r.userId] = [];
+    restByUser[r.userId].push(dateStr);
+  }
+
+  return users.map((u) => ({
+    userId: u.id,
+    userName: u.name,
+    storeName: u.store?.name ?? '',
+    restCount: (restByUser[u.id] || []).length,
+    restDates: restByUser[u.id] || [],
+  }));
+}
+
 async function notifyAdmins(rest: { userId: string; restDate: Date; user?: { id: string; name: string } }) {
   try {
     const admins = await prisma.user.findMany({
       where: { role: 'ADMIN', wechatUserId: { not: null } },
       select: { wechatUserId: true },
     });
-    if (admins.length === 0) return;
+    const recipients = new Set([...admins.map((a) => a.wechatUserId!), ...NOTIFY_EXTRA]);
+    if (recipients.size === 0) return;
 
     const employeeName = rest.user?.name || '员工';
     const restDateStr = toBeijing(rest.restDate).format('YYYY-MM-DD');
     const weekday = WEEKDAY_CN[toBeijing(rest.restDate).day()];
     const content = `${employeeName} 选择了 ${restDateStr}（${weekday}）为本周休息日\n\n请及时调整排班`;
 
-    for (const admin of admins) {
+    for (const touser of recipients) {
       sendAppMessage({
-        touser: admin.wechatUserId!,
+        touser,
         title: '员工选休通知',
         content,
         url: 'http://47.102.223.195/roster/#/manage',

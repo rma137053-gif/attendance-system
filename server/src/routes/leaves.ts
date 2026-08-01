@@ -29,7 +29,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { role, userId } = req.user!;
 
-    if (role === 'STORE_ADMIN') throw new ForbiddenError();
+    if (role === 'STORE_ADMIN') {
+      // STORE_ADMIN can view their store's leaves only
+      const result = await leaveService.listLeaves({
+        storeId: req.user!.storeId!,
+        page: req.query.page ? Number(req.query.page) : undefined,
+        pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
+      });
+      res.json(result);
+      return;
+    }
 
     const filters: any = {
       status: req.query.status as string | undefined,
@@ -67,7 +76,20 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { role, userId: currentUserId, storeId } = req.user!;
 
-    if (role === 'STORE_ADMIN') throw new ForbiddenError();
+    if (role === 'STORE_ADMIN') {
+      // STORE_ADMIN can create leave for store employees
+      const body = createSchema.parse(req.body);
+      if (!body.userId) throw new ForbiddenError('请选择员工');
+      const targetUser = await prisma.user.findUnique({ where: { id: body.userId }, select: { storeId: true } });
+      if (!targetUser || !targetUser.storeId || targetUser.storeId !== storeId) throw new ForbiddenError('只能为本店员工发起请假');
+      const leave = await leaveService.createLeave(
+        body.userId, targetUser.storeId!, body.type, body.startDate, body.endDate, body.reason,
+      );
+      const employeeName = (leave as any).user?.name || '员工';
+      notifyAdmins(leave.id, employeeName, body.type, body.startDate, body.endDate, body.reason);
+      res.status(201).json(leave);
+      return;
+    }
 
     const body = createSchema.parse(req.body);
 
@@ -81,7 +103,6 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       // ADMIN
       if (!body.userId) throw new ForbiddenError('请选择员工');
       targetUserId = body.userId;
-      // 查找员工的 storeId，避免外键约束错误
       const targetUser = await prisma.user.findUnique({ where: { id: targetUserId }, select: { storeId: true } });
       if (!targetUser?.storeId) throw new ForbiddenError('该员工无归属门店');
       targetStoreId = targetUser.storeId;
@@ -149,10 +170,17 @@ router.patch('/:id/reject', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
-// 删除请假 — 仅 ADMIN
+// 删除请假 — ADMIN 或 STORE_ADMIN（限本店）
 router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (req.user!.role !== 'ADMIN') throw new ForbiddenError();
+    const { role, storeId } = req.user!;
+    if (role !== 'ADMIN' && role !== 'STORE_ADMIN') throw new ForbiddenError();
+    if (role === 'STORE_ADMIN') {
+      const leave = await prisma.leave.findUnique({ where: { id: req.params.id as string }, select: { userId: true } });
+      if (!leave) throw new ForbiddenError('请假记录不存在');
+      const leaveUser = await prisma.user.findUnique({ where: { id: leave.userId }, select: { storeId: true } });
+      if (!leaveUser || leaveUser.storeId !== storeId) throw new ForbiddenError('只能操作本店员工的请假');
+    }
     await leaveService.deleteLeave(req.params.id as string);
     res.json({ message: '删除成功' });
   } catch (err) {
@@ -185,7 +213,9 @@ function notifyEmployee(leave: any, newStatus: 'APPROVED' | 'REJECTED') {
   }
 }
 
-/** 向所有已绑定企业微信的管理员发送请假审批通知 */
+/** 向所有已绑定企业微信的管理员 + 麻伦熙发送请假审批通知 */
+const NOTIFY_EXTRA = ['MaLunXi'];
+
 async function notifyAdmins(
   leaveId: string, employeeName: string, type: string,
   startDate: string, endDate: string, reason?: string,
@@ -196,14 +226,15 @@ async function notifyAdmins(
       select: { wechatUserId: true },
     });
 
-    if (admins.length === 0) return;
+    const recipients = new Set([...admins.map((a) => a.wechatUserId!), ...NOTIFY_EXTRA]);
+    if (recipients.size === 0) return;
 
     const typeLabel = LEAVE_TYPE_CN[type] || type;
     const content = `【${typeLabel}】${employeeName}\n日期：${startDate} ~ ${endDate}\n原因：${reason || '无'}\n\n请及时审批`;
 
-    for (const admin of admins) {
+    for (const touser of recipients) {
       sendAppMessage({
-        touser: admin.wechatUserId!,
+        touser,
         title: '新的请假申请',
         content,
         url: 'http://47.102.223.195/admin/leaves',
@@ -213,5 +244,17 @@ async function notifyAdmins(
     console.error('[WeChat] 查询管理员失败:', err.message);
   }
 }
+
+// 月度请假统计（管理员 + 店长）
+router.get('/monthly-summary', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { role, storeId } = req.user!;
+    if (role === 'EMPLOYEE') throw new ForbiddenError('仅管理员可查看');
+    const effectiveStoreId = role === 'ADMIN' ? (req.query.storeId as string) || null : storeId;
+    const month = (req.query.month as string) || dayjs().tz('Asia/Shanghai').format('YYYY-MM');
+    const summary = await leaveService.getMonthlyLeaveSummary(effectiveStoreId, month);
+    res.json(summary);
+  } catch (err) { next(err); }
+});
 
 export default router;

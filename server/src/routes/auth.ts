@@ -34,7 +34,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     res.cookie('token', result.token, {
       path: '/',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 36500 * 24 * 60 * 60 * 1000, // ~100 years, effectively permanent
     });
     res.json(result);
   } catch (err) {

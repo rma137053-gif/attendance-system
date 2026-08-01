@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import dayjs from 'dayjs';
 import { authMiddleware } from '../middleware/auth';
 import { ForbiddenError } from '../utils/errors';
 import * as weeklyRestService from '../services/weekly-rest.service';
@@ -94,6 +95,20 @@ router.get('/store-week', async (req: Request, res: Response, next: NextFunction
 
     const map = await weeklyRestService.getRestMapForStore(targetStoreId, weekStart);
     res.json({ restMap: map });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 月度休息日统计（管理员 + 店长）
+router.get('/monthly-summary', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { role, storeId } = req.user!;
+    if (role === 'EMPLOYEE') throw new ForbiddenError('仅管理员可查看');
+    const effectiveStoreId = role === 'ADMIN' ? (req.query.storeId as string) || null : storeId;
+    const month = (req.query.month as string) || dayjs().tz('Asia/Shanghai').format('YYYY-MM');
+    const summary = await weeklyRestService.getMonthlyRestSummary(effectiveStoreId, month);
+    res.json(summary);
   } catch (err) {
     next(err);
   }

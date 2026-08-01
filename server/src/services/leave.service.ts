@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { beijingDayStart, beijingDayEnd } from '../utils/timezone';
+import { beijingDayStart, beijingDayEnd, toBeijing } from '../utils/timezone';
 import dayjs from 'dayjs';
 
 const prisma = new PrismaClient();
@@ -28,16 +28,19 @@ export async function listLeaves(params: ListLeavesParams) {
   if (status) where.status = status;
   if (userId) where.userId = userId;
   if (startDate || endDate) {
-    where.startDate = {};
-    if (startDate) where.startDate.gte = beijingDayStart(dayjs.tz(startDate, 'Asia/Shanghai'));
-    if (endDate) where.endDate.lte = beijingDayEnd(dayjs.tz(endDate, 'Asia/Shanghai'));
+    if (startDate) {
+      where.startDate = { gte: beijingDayStart(dayjs.tz(startDate, 'Asia/Shanghai')) };
+    }
+    if (endDate) {
+      where.endDate = { lte: beijingDayEnd(dayjs.tz(endDate, 'Asia/Shanghai')) };
+    }
   }
 
   const [items, total] = await Promise.all([
     prisma.leave.findMany({
       where,
       include: {
-        user: { select: { id: true, name: true } },
+        user: { select: { id: true, name: true, store: { select: { id: true, name: true } } } },
         approver: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -105,12 +108,22 @@ export async function updateLeave(
 ) {
   const leave = await prisma.leave.findUnique({ where: { id: leaveId } });
   if (!leave) throw new NotFoundError('请假记录不存在');
-  // ADMIN 可操作任意，EMPLOYEE 只能操作自己的 PENDING 请假
-  if (actor.role !== 'ADMIN') {
-    if (actor.role === 'STORE_ADMIN') throw new ForbiddenError('无权限操作请假');
+
+  // Permission check
+  if (actor.role === 'ADMIN') {
+    // ADMIN can edit any leave, any status
+  } else if (actor.role === 'STORE_ADMIN') {
+    // STORE_ADMIN can edit leaves for employees in their store
+    if (!actor.storeId) throw new ForbiddenError('无门店归属');
+    const leaveUser = await prisma.user.findUnique({ where: { id: leave.userId }, select: { storeId: true } });
+    if (!leaveUser || leaveUser.storeId !== actor.storeId) {
+      throw new ForbiddenError('只能操作本店员工的请假');
+    }
+    if (leave.status !== 'PENDING') throw new BadRequestError('只能修改待审批的请假');
+  } else {
+    // EMPLOYEE can always edit their own leave
     if (leave.userId !== actor.userId) throw new ForbiddenError('只能操作自己的请假');
   }
-  if (leave.status !== 'PENDING') throw new BadRequestError('只能修改待审批的请假');
 
   const updateData: any = {};
   if (data.type) {
@@ -203,4 +216,63 @@ export async function getApprovedLeaveDates(
     }
   }
   return dates;
+}
+
+/** 月度请假统计（管理员视角），按年假/病假/事假分类 */
+export async function getMonthlyLeaveSummary(storeId: string | null, monthStr: string) {
+  const month = dayjs.tz(monthStr, 'Asia/Shanghai');
+  const monthStart = beijingDayStart(month.startOf('month'));
+  const monthEnd = beijingDayEnd(month.endOf('month'));
+
+  const userWhere: any = { status: 'ACTIVE', role: 'EMPLOYEE' };
+  if (storeId) userWhere.storeId = storeId;
+
+  const users = await prisma.user.findMany({
+    where: userWhere,
+    select: { id: true, name: true, store: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+  });
+
+  const leaves = await prisma.leave.findMany({
+    where: {
+      userId: { in: users.map((u) => u.id) },
+      status: { in: ['APPROVED', 'PENDING'] },
+      startDate: { lte: monthEnd },
+      endDate: { gte: monthStart },
+    },
+    select: { userId: true, type: true, startDate: true, endDate: true },
+  });
+
+  type LeaveInfo = { annual: number; sick: number; personal: number; dates: string[] };
+  const leaveByUser: Record<string, LeaveInfo> = {};
+
+  for (const l of leaves) {
+    if (!leaveByUser[l.userId]) leaveByUser[l.userId] = { annual: 0, sick: 0, personal: 0, dates: [] };
+    const info = leaveByUser[l.userId];
+    let d = toBeijing(l.startDate);
+    const end = toBeijing(l.endDate);
+    const mStart = toBeijing(monthStart);
+    const mEnd = toBeijing(monthEnd);
+    if (d.isBefore(mStart)) d = mStart;
+    const effEnd = end.isAfter(mEnd) ? mEnd : end;
+    let cnt = 0;
+    while (d.isBefore(effEnd) || d.isSame(effEnd, 'day')) {
+      info.dates.push(d.format('YYYY-MM-DD'));
+      cnt++;
+      d = d.add(1, 'day');
+    }
+    if (l.type === 'ANNUAL') info.annual += cnt;
+    else if (l.type === 'SICK') info.sick += cnt;
+    else info.personal += cnt;
+  }
+
+  return users.map((u) => {
+    const info = leaveByUser[u.id] || { annual: 0, sick: 0, personal: 0, dates: [] };
+    return {
+      userId: u.id, userName: u.name, storeName: u.store?.name ?? '',
+      totalDays: info.annual + info.sick + info.personal,
+      annualDays: info.annual, sickDays: info.sick, personalDays: info.personal,
+      dates: info.dates.sort(),
+    };
+  });
 }

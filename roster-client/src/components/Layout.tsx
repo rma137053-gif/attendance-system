@@ -28,6 +28,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               { to: '/leaves', label: '请假' },
               ...(isAdmin ? [
                 { to: '/manage' as const, label: '排班管理' },
+                { to: '/overtime' as const, label: '主动加班' },
+                { to: '/overtime-coverage' as const, label: '被动加班' },
                 { to: '/hours' as const, label: '工时统计' },
               ] : []),
             ].map(({ to, label }) => (

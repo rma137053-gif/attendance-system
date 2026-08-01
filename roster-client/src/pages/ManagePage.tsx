@@ -29,18 +29,10 @@ interface EditingCell {
 }
 
 const SHIFT_TEMPLATES = [
-  { label: '早班', start: '08:00', end: '13:30', breakMin: 30 },
-  { label: '晚班', start: '13:30', end: '21:00', breakMin: 30 },
-  { label: '全天', start: '08:00', end: '21:00', breakMin: 60 },
-  { label: '上午', start: '08:00', end: '12:00', breakMin: 0 },
-  { label: '下午', start: '12:00', end: '17:00', breakMin: 0 },
+  { label: '上午', start: '08:15', end: '12:30', breakMin: 0 },
+  { label: '下午', start: '12:30', end: '21:00', breakMin: 0 },
+  { label: '全天', start: '09:00', end: '19:30', breakMin: 120 },
 ];
-
-const LEAVE_TYPE_LABEL: Record<string, string> = {
-  ANNUAL: '年假',
-  SICK: '病假',
-  PERSONAL: '事假',
-};
 
 function getShiftColor(startTime: string): { bg: string; dot: string; badge: string } {
   if (startTime < '10:00') return { bg: 'bg-shift-early-light border-shift-early/30 text-shift-early', dot: 'bg-shift-early', badge: 'bg-shift-early text-white' };
@@ -78,6 +70,18 @@ export default function ManagePage() {
   const [batchEnd, setBatchEnd] = useState('18:00');
   const [batchBreak, setBatchBreak] = useState(0);
   const [copying, setCopying] = useState(false);
+  const [showOneClick, setShowOneClick] = useState(false);
+  const [ocStartDate, setOcStartDate] = useState(() => dayjs().startOf('week').add(1, 'day').format('YYYY-MM-DD'));
+  const [ocEndDate, setOcEndDate] = useState(() => dayjs().startOf('week').add(1, 'day').add(6, 'day').format('YYYY-MM-DD'));
+  const [ocFullDayEmp, setOcFullDayEmp] = useState('');
+  const [ocMorningStart, setOcMorningStart] = useState('08:15');
+  const [ocMorningEnd, setOcMorningEnd] = useState('12:30');
+  const [ocEveningStart, setOcEveningStart] = useState('12:30');
+  const [ocEveningEnd, setOcEveningEnd] = useState('21:00');
+  const [ocFullStart, setOcFullStart] = useState('09:00');
+  const [ocFullEnd, setOcFullEnd] = useState('19:30');
+  const [ocFullBreak, setOcFullBreak] = useState(120);
+  const [ocFirstMorning, setOcFirstMorning] = useState(''); // 第一天上午班员工
 
   const weekEnd = weekStart.add(6, 'day');
   const days: dayjs.Dayjs[] = [];
@@ -94,7 +98,7 @@ export default function ManagePage() {
       if (isAdmin && selectedStoreId) {
         const usersRes = await api.get('/users', { params: { storeId: selectedStoreId } });
         allEmployees = usersRes.data
-          .filter((u: any) => u.role === 'EMPLOYEE')
+          .filter((u: any) => u.role === 'EMPLOYEE' && !u.crossStore)
           .map((u: any) => ({ id: u.id, name: u.name, role: u.role }));
       } else if (!isAdmin) {
         const empRes = await api.get('/users/roster');
@@ -205,6 +209,71 @@ export default function ManagePage() {
     setDirtyCells(newDirty);
     setBatchDay(null);
     success(`已为 ${employees.length} 人设置 ${batchDay.label}`);
+  };
+
+  const applyOneClickSchedule = () => {
+    // Validate
+    if (employees.length !== 3) {
+      showError(`一键排班需要恰好3名员工，当前门店有 ${employees.length} 人`);
+      return;
+    }
+    if (!ocFullDayEmp) {
+      showError('请选择全天班员工');
+      return;
+    }
+    if (ocEndDate < ocStartDate) {
+      showError('结束日期不能早于开始日期');
+      return;
+    }
+
+    // Identify half-day alternators — morning employee first, then evening
+    const halfDayEmps = employees.filter((e) => e.id !== ocFullDayEmp);
+    if (halfDayEmps.length === 2 && ocFirstMorning) {
+      // Reorder: morning person first, evening person second
+      const morningIdx = halfDayEmps.findIndex((e) => e.id === ocFirstMorning);
+      if (morningIdx === 1) {
+        [halfDayEmps[0], halfDayEmps[1]] = [halfDayEmps[1], halfDayEmps[0]];
+      }
+    }
+
+    // Shift definitions (from modal inputs)
+    const FULL_DAY = { start: ocFullStart, end: ocFullEnd, breakMin: ocFullBreak };
+    const MORNING = { start: ocMorningStart, end: ocMorningEnd, breakMin: 0 };
+    const EVENING = { start: ocEveningStart, end: ocEveningEnd, breakMin: 0 };
+
+    const newMap = { ...rosterMap };
+    const newDirty = new Set(dirtyCells);
+    const startD = dayjs(ocStartDate);
+    const endD = dayjs(ocEndDate);
+    let dayIndex = 0;
+
+    for (let d = startD; d.isBefore(endD.add(1, 'day'), 'day'); d = d.add(1, 'day')) {
+      const dateStr = d.format('YYYY-MM-DD');
+
+      // Full-day employee
+      const fdKey = makeKey(ocFullDayEmp, dateStr);
+      newMap[fdKey] = { startTime: FULL_DAY.start, endTime: FULL_DAY.end, breakMinutes: FULL_DAY.breakMin };
+      newDirty.add(fdKey);
+
+      // Alternating half-day: even days → EmpA morning / EmpB evening; odd days → swap
+      const morningEmp = halfDayEmps[dayIndex % 2];
+      const eveningEmp = halfDayEmps[(dayIndex + 1) % 2];
+
+      const moKey = makeKey(morningEmp.id, dateStr);
+      newMap[moKey] = { startTime: MORNING.start, endTime: MORNING.end, breakMinutes: MORNING.breakMin };
+      newDirty.add(moKey);
+
+      const evKey = makeKey(eveningEmp.id, dateStr);
+      newMap[evKey] = { startTime: EVENING.start, endTime: EVENING.end, breakMinutes: EVENING.breakMin };
+      newDirty.add(evKey);
+
+      dayIndex++;
+    }
+
+    setRosterMap(newMap);
+    setDirtyCells(newDirty);
+    setShowOneClick(false);
+    success(`已生成 ${dayIndex} 天排班，共 ${newDirty.size} 条待保存`);
   };
 
   const confirmEdit = () => {
@@ -440,6 +509,18 @@ export default function ManagePage() {
               >
                 {copying ? '复制中...' : '复制上周'}
               </button>
+              <button
+                onClick={() => {
+                  setOcStartDate(weekStart.format('YYYY-MM-DD'));
+                  setOcEndDate(weekEnd.format('YYYY-MM-DD'));
+                  setOcFullDayEmp('');
+                  setOcFirstMorning('');
+                  setShowOneClick(true);
+                }}
+                className="text-xs px-2.5 py-1.5 rounded-lg bg-brand text-white font-medium hover:bg-brand-dark transition-colors"
+              >
+                一键排班
+              </button>
             </div>
             <span className="text-base font-semibold text-gray-700">
               {weekStart.format('MM/DD')} - {weekEnd.format('MM/DD')}
@@ -515,13 +596,10 @@ export default function ManagePage() {
                                 ${dirty ? 'ring-2 ring-brand/50 ring-offset-1' : ''}
                               `}
                             >
-                              {cell ? (
-                                <>
-                                  <span>{cell.startTime}</span><br /><span>{cell.endTime}</span>
-                                  {leaveType && <div className="text-xs mt-0.5 font-bold">{LEAVE_TYPE_LABEL[leaveType] || '请假'}</div>}
-                                </>
-                              ) : leaveType ? (
-                                <span className="text-xs font-bold">{LEAVE_TYPE_LABEL[leaveType] || '假'}</span>
+                              {leaveType ? (
+                                <span className="text-xs font-bold">假</span>
+                              ) : cell ? (
+                                <><span>{cell.startTime}</span><br /><span>{cell.endTime}</span></>
                               ) : isRest ? '休' : '—'}
                             </button>
                           </td>
@@ -596,6 +674,139 @@ export default function ManagePage() {
                 className="px-6 py-3 rounded-lg text-base bg-brand text-white hover:bg-brand-dark font-medium">
                 应用到{employees.length}人
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* One-Click Scheduling Modal */}
+      {showOneClick && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowOneClick(false)} />
+          <div className="relative bg-white rounded-t-2xl p-5 w-full max-w-lg animate-slide-up overflow-y-auto max-h-[90vh]">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">一键排班</h3>
+
+            {/* Date Range */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-400 mb-1">开始日期</label>
+                <input type="date" value={ocStartDate} onChange={(e) => setOcStartDate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none" />
+              </div>
+              <span className="text-gray-300 mt-5">—</span>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-400 mb-1">结束日期</label>
+                <input type="date" value={ocEndDate} onChange={(e) => setOcEndDate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none" />
+              </div>
+            </div>
+
+            {/* Employee Selectors */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1">全天班员工</label>
+              <select value={ocFullDayEmp} onChange={(e) => { setOcFullDayEmp(e.target.value); setOcFirstMorning(''); }}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none bg-white">
+                <option value="">请选择</option>
+                {employees.map((emp) => (<option key={emp.id} value={emp.id}>{emp.name}</option>))}
+              </select>
+            </div>
+
+            {/* First Day Morning Selector */}
+            {ocFullDayEmp && employees.filter((e) => e.id !== ocFullDayEmp).length === 2 && (
+              <div className="mb-4">
+                <label className="block text-xs text-gray-400 mb-1">第1天上午班员工</label>
+                <select value={ocFirstMorning} onChange={(e) => setOcFirstMorning(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none bg-white">
+                  <option value="">请选择</option>
+                  {employees.filter((e) => e.id !== ocFullDayEmp).map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+                {ocFirstMorning && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    下午班：{employees.find((e) => e.id !== ocFullDayEmp && e.id !== ocFirstMorning)?.name}（自动分配）
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Shift Time Editors */}
+            <div className="space-y-3 mb-5">
+              {/* 上午班 */}
+              <div className="bg-blue-50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-3 h-3 rounded-full bg-shift-early" />
+                  <span className="text-sm font-medium text-gray-700">上午班</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="time" value={ocMorningStart} onChange={(e) => setOcMorningStart(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                  <span className="text-gray-400">—</span>
+                  <input type="time" value={ocMorningEnd} onChange={(e) => setOcMorningEnd(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                </div>
+              </div>
+
+              {/* 下午班 */}
+              <div className="bg-purple-50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-3 h-3 rounded-full bg-shift-late" />
+                  <span className="text-sm font-medium text-gray-700">下午班</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="time" value={ocEveningStart} onChange={(e) => setOcEveningStart(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                  <span className="text-gray-400">—</span>
+                  <input type="time" value={ocEveningEnd} onChange={(e) => setOcEveningEnd(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                </div>
+              </div>
+
+              {/* 全天班 */}
+              <div className="bg-amber-50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-3 h-3 rounded-full bg-shift-mid" />
+                  <span className="text-sm font-medium text-gray-700">全天班</span>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="time" value={ocFullStart} onChange={(e) => setOcFullStart(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                  <span className="text-gray-400">—</span>
+                  <input type="time" value={ocFullEnd} onChange={(e) => setOcFullEnd(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white" />
+                </div>
+                <select value={ocFullBreak} onChange={(e) => setOcFullBreak(Number(e.target.value))}
+                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white text-gray-500">
+                  <option value={0}>无休息</option>
+                  <option value={30}>休息 30 分钟</option>
+                  <option value={60}>休息 1 小时</option>
+                  <option value={90}>休息 1.5 小时</option>
+                  <option value={120}>休息 2 小时</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Summary preview */}
+            {ocFullDayEmp && (
+              <div className="bg-gray-50 rounded-xl p-3 mb-5 text-sm text-gray-500">
+                <p className="text-gray-700 font-medium mb-1">预览</p>
+                <p>全天：{employees.find((e) => e.id === ocFullDayEmp)?.name} {ocFullStart}-{ocFullEnd}（休{ocFullBreak}分）</p>
+                <p>上午：{ocMorningStart}-{ocMorningEnd} / 下午：{ocEveningStart}-{ocEveningEnd}</p>
+                {(() => {
+                  const half = employees.filter((e) => e.id !== ocFullDayEmp);
+                  if (half.length === 2) {
+                    return <p>轮班：{half[0].name}、{half[1].name}（每日交替）</p>;
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowOneClick(false)}
+                className="px-6 py-3 rounded-lg text-base bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">取消</button>
+              <button onClick={applyOneClickSchedule}
+                className="px-6 py-3 rounded-lg text-base bg-brand text-white hover:bg-brand-dark font-medium">生成排班</button>
             </div>
           </div>
         </div>
