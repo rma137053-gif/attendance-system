@@ -20,6 +20,7 @@ interface ReportRow {
   overtimeCoverage: string;
   earlyDeparture: string;
   lateCount: number;
+  lateMinutes: string;
   earlyCount: number;
   missingClockOut: boolean;
   leaveDays: number;
@@ -87,7 +88,7 @@ export default function HoursPage() {
   };
 
   const exportCsv = () => {
-    const headers = ['姓名', '门店', '出勤天', '请假天', '选休天', '工时', '主动加班', '被动加班', '早退', '迟到', '缺卡'];
+    const headers = ['姓名', '门店', '出勤天', '请假天', '选休天', '工时', '主动加班', '被动加班', '早退', '迟到(次)', '迟到(分钟)', '缺卡'];
     const lines = [headers.join(',')];
     items.forEach((r) => {
       lines.push([
@@ -95,7 +96,7 @@ export default function HoursPage() {
         r.workHours, r.overtimeVoluntary !== '0' ? r.overtimeVoluntary : '0',
         r.overtimeCoverage !== '0' ? r.overtimeCoverage : '0',
         r.earlyDeparture !== '0' ? r.earlyDeparture : '0',
-        r.lateCount || '', r.missingClockOut ? '是' : '否',
+        r.lateCount || '', r.lateMinutes || '', r.missingClockOut ? '是' : '否',
       ].join(','));
     });
     if (summary) {
@@ -103,7 +104,7 @@ export default function HoursPage() {
         summary.workHours, summary.overtimeVoluntary !== '0' ? summary.overtimeVoluntary : '0',
         summary.overtimeCoverage !== '0' ? summary.overtimeCoverage : '0',
         summary.earlyDeparture !== '0' ? summary.earlyDeparture : '0',
-        summary.lateCount || '', summary.missingClockOut ? '是' : '否',
+        summary.lateCount || '', summary.lateMinutes || '', summary.missingClockOut ? '是' : '否',
       ].join(','));
     }
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -184,7 +185,7 @@ export default function HoursPage() {
                   <td className={`${tdClass} font-medium hidden sm:table-cell ${r.earlyDeparture !== '0' ? 'text-anomaly' : 'text-gray-400'}`}>
                     {r.earlyDeparture !== '0' ? `-${r.earlyDeparture}` : '—'}
                   </td>
-                  <td className={tdClass}>{r.lateCount > 0 ? <span className="text-anomaly font-medium">{r.lateCount}次</span> : <span className="text-gray-400">—</span>}</td>
+                  <td className={tdClass}>{r.lateCount > 0 ? <span className="text-anomaly font-medium">{r.lateCount}次 / {r.lateMinutes}</span> : <span className="text-gray-400">—</span>}</td>
                   <td className={tdClass}>{r.missingClockOut ? <span className="text-danger text-xs">⚠️</span> : <span className="text-gray-400">—</span>}</td>
                 </tr>
                 {/* 展开的每日明细 */}
@@ -257,7 +258,7 @@ export default function HoursPage() {
                   <td className={`${tdClass} hidden sm:table-cell ${summary.earlyDeparture !== '0' ? 'text-anomaly' : 'text-gray-400'}`}>
                     {summary.earlyDeparture !== '0' ? `-${summary.earlyDeparture}` : '—'}
                   </td>
-                  <td className={tdClass}>{summary.lateCount > 0 ? <span className="text-anomaly font-medium">{summary.lateCount}次</span> : <span className="text-gray-400">—</span>}</td>
+                  <td className={tdClass}>{summary.lateCount > 0 ? <span className="text-anomaly font-medium">{summary.lateCount}次 / {summary.lateMinutes}</span> : <span className="text-gray-400">—</span>}</td>
                   <td className={tdClass}>{summary.missingClockOut ? <span className="text-danger text-xs">⚠️</span> : <span className="text-gray-400">—</span>}</td>
                 </tr>
               </tfoot>

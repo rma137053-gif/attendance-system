@@ -34,6 +34,7 @@ interface ReportRow {
   overtimeCoverage: string;  // 被动加班
   earlyDeparture: string;   // "X小时Y分钟"
   lateCount: number;
+  lateMinutes: string;      // 迟到总分钟数（格式：X小时Y分钟）
   earlyCount: number;
   missingClockOut: boolean;
   leaveDays: number;
@@ -75,10 +76,10 @@ function buildUserDayStats(
   }
 
   // Per-user per-day stats
-  const result = new Map<string, Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; earlyCount: number; missingOut: boolean }>>();
+  const result = new Map<string, Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; lateMinutes: number; earlyCount: number; missingOut: boolean }>>();
 
   for (const [userId, dayMap] of userDayMap) {
-    const userStats = new Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; earlyCount: number; missingOut: boolean }>();
+    const userStats = new Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; lateMinutes: number; earlyCount: number; missingOut: boolean }>();
     result.set(userId, userStats);
 
     for (const [dateStr, entry] of dayMap) {
@@ -89,6 +90,7 @@ function buildUserDayStats(
       let overtimeMin = 0;
       let earlyMin = 0;
       let lateCount = 0;
+      let lateMinutes = 0;
       let earlyCount = 0;
       const missingOut = sortedIns.length > sortedOuts.length;
 
@@ -125,7 +127,7 @@ function buildUserDayStats(
           if (i === 0 && roster.startTime) {
             const start = inTime.hour(parseInt(roster.startTime.split(':')[0])).minute(parseInt(roster.startTime.split(':')[1])).second(0);
             const lateMin = inTime.diff(start.add(3, 'minute'), 'minute'); // 3-min grace
-            if (lateMin > 0) lateCount++;
+            if (lateMin > 0) { lateCount++; lateMinutes += lateMin; }
           }
         }
       }
@@ -135,10 +137,10 @@ function buildUserDayStats(
         const firstIn = sortedIns[0];
         const start = firstIn.hour(parseInt(roster.startTime.split(':')[0])).minute(parseInt(roster.startTime.split(':')[1])).second(0);
         const lateMin = firstIn.diff(start.add(3, 'minute'), 'minute');
-        if (lateMin > 0) lateCount = 1;
+        if (lateMin > 0) { lateCount = 1; lateMinutes = lateMin; }
       }
 
-      userStats.set(dateStr, { workMin, overtimeMin, earlyMin, lateCount, earlyCount, missingOut });
+      userStats.set(dateStr, { workMin, overtimeMin, earlyMin, lateCount, lateMinutes, earlyCount, missingOut });
     }
   }
 
@@ -199,17 +201,17 @@ async function buildLeaveDayMap(userIds: string[], rangeStart: Date, rangeEnd: D
 
 function computeRow(
   userId: string, userName: string, userEmail: string, storeName: string,
-  dayStats: Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; earlyCount: number; missingOut: boolean }>,
+  dayStats: Map<string, { workMin: number; overtimeMin: number; earlyMin: number; lateCount: number; lateMinutes: number; earlyCount: number; missingOut: boolean }>,
   leaveDays: number,
   restDays: number,
   otVoluntaryMin: number,
   otCoverageMin: number,
 ): ReportRow {
-  let clockInCount = 0, clockOutCount = 0, workMin = 0, overtimeMin = 0, earlyMin = 0, lateCount = 0, earlyCount = 0, missingClockOut = false;
+  let clockInCount = 0, clockOutCount = 0, workMin = 0, overtimeMin = 0, earlyMin = 0, lateCount = 0, lateMinutes = 0, earlyCount = 0, missingClockOut = false;
   for (const [, stats] of dayStats) {
     clockInCount++; clockOutCount++;
     workMin += stats.workMin; overtimeMin += stats.overtimeMin; earlyMin += stats.earlyMin;
-    lateCount += stats.lateCount; earlyCount += stats.earlyCount;
+    lateCount += stats.lateCount; lateMinutes += stats.lateMinutes; earlyCount += stats.earlyCount;
     if (stats.missingOut) missingClockOut = true;
   }
   return {
@@ -220,7 +222,7 @@ function computeRow(
     overtimeVoluntary: formatDuration(otVoluntaryMin),
     overtimeCoverage: formatDuration(otCoverageMin),
     earlyDeparture: formatDuration(earlyMin),
-    lateCount, earlyCount, missingClockOut, leaveDays, restDays,
+    lateCount, lateMinutes: formatDuration(lateMinutes), earlyCount, missingClockOut, leaveDays, restDays,
   };
 }
 
@@ -376,13 +378,13 @@ export async function getYearlyReport(storeId: string | null, yearStr?: string) 
 
 export function generateSummary(rows: ReportRow[]): ReportRow & { userName: string } {
   let clockInCount = 0, clockOutCount = 0, daysWithRecords = 0, workMin = 0, overtimeMin = 0, otVolMin = 0, otCovMin = 0, earlyMin = 0;
-  let lateCount = 0, earlyCount = 0, anyMissing = false;
+  let lateCount = 0, lateMinTotal = 0, earlyCount = 0, anyMissing = false;
   function parseMin(s: string): number { let t = 0; const h = s.match(/(\d+)小时/); const m = s.match(/(\d+)分钟/); if (h) t += parseInt(h[1])*60; if (m) t += parseInt(m[1]); return t; }
   for (const r of rows) {
     clockInCount += r.clockInCount; clockOutCount += r.clockOutCount; daysWithRecords += r.daysWithRecords;
     workMin += parseMin(r.workHours); overtimeMin += parseMin(r.overtime); earlyMin += parseMin(r.earlyDeparture);
     otVolMin += parseMin(r.overtimeVoluntary); otCovMin += parseMin(r.overtimeCoverage);
-    lateCount += r.lateCount; earlyCount += r.earlyCount;
+    lateCount += r.lateCount; lateMinTotal += parseMin(r.lateMinutes); earlyCount += r.earlyCount;
     if (r.missingClockOut) anyMissing = true;
   }
   return {
@@ -390,7 +392,7 @@ export function generateSummary(rows: ReportRow[]): ReportRow & { userName: stri
     clockInCount, clockOutCount, daysWithRecords,
     workHours: formatDuration(workMin), overtime: formatDuration(overtimeMin),
     overtimeVoluntary: formatDuration(otVolMin), overtimeCoverage: formatDuration(otCovMin),
-    earlyDeparture: formatDuration(earlyMin), lateCount, earlyCount,
+    earlyDeparture: formatDuration(earlyMin), lateCount, lateMinutes: formatDuration(lateMinTotal), earlyCount,
     missingClockOut: anyMissing, leaveDays: rows.reduce((sum, r) => sum + (r.leaveDays || 0), 0),
     restDays: rows.reduce((sum, r) => sum + (r.restDays || 0), 0),
   };
@@ -466,7 +468,7 @@ export function generateCsv(rows: any[]): string {
   const summary = generateSummary(rows);
   const allRows = [...rows, summary as any];
 
-  const headers = ['姓名', '邮箱', '门店', '上班次数', '下班次数', '出勤天数', '请假天数', '实际工时', '主动加班', '被动加班', '早退总计', '迟到次数', '早退次数', '缺下班卡'];
+  const headers = ['姓名', '邮箱', '门店', '上班次数', '下班次数', '出勤天数', '请假天数', '实际工时', '主动加班', '被动加班', '早退总计', '迟到次数', '迟到分钟', '早退次数', '缺下班卡'];
   const lines = [headers.join(',')];
 
   for (const row of allRows) {
@@ -475,7 +477,7 @@ export function generateCsv(rows: any[]): string {
       String(row.clockInCount), String(row.clockOutCount), String(row.daysWithRecords),
       String(row.leaveDays ?? 0),
       row.workHours ?? '0', row.overtimeVoluntary ?? '0', row.overtimeCoverage ?? '0', row.earlyDeparture ?? '0',
-      String(row.lateCount ?? ''), String(row.earlyCount ?? ''),
+      String(row.lateCount ?? ''), String(row.lateMinutes ?? ''), String(row.earlyCount ?? ''),
       row.missingClockOut ? '是' : '否',
     ];
     lines.push(values.map((v) => (String(v).includes(',') ? `"${v}"` : v)).join(','));
